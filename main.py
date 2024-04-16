@@ -1,7 +1,6 @@
 import urllib
 from time import sleep
 import requests
-import json
 import configparser
 import os
 from requests.adapters import HTTPAdapter
@@ -47,27 +46,23 @@ def requests_retry_session(
     session.mount('https://', adapter)
     return session
 
-    response_list = requests_retry_session().post(url_list, headers=headers_list, data=payload_list)
-    return json.loads(response_list.text)
-
 
 def list_directory(path):
     url_list = api_base_url + "/fs/list"
-    payload_list = json.dumps({
+    payload_list = {
         "path": path,
         "password": "",
         "page": 1,
         "per_page": 0,
         "refresh": False
-    })
+    }
     headers_list = {
         'Authorization': token,
         'User-Agent': UserAgent,
         'Content-Type': 'application/json'
     }
-    # 使用重试逻辑的目录列表请求
-    response_list = requests_retry_session().post(url_list, headers=headers_list, data=payload_list)
-    return json.loads(response_list.text)
+    response_list = requests_retry_session().post(url_list, headers=headers_list, json=payload_list)
+    return response_list.json()
 
 
 def traverse_directory(path, json_structure, base_url, target_directory, is_root=True):
@@ -97,9 +92,6 @@ def traverse_directory(path, json_structure, base_url, target_directory, is_root
     if not is_root:  # 如果不是根目录，表示已达到末端，开始写入 .strm 文件
         create_strm_files(json_structure, target_directory, base_url,
                           path.replace(root_path, '').strip('/').replace('/', os.sep))
-        # 记录到 JSON 文件
-        with open(os.path.join(target_directory, 'directory_structure.json'), 'a', encoding='utf-8') as f:
-            json.dump(json_structure, f, indent=4)
 
 
 def is_video_file(filename):
@@ -114,6 +106,12 @@ def create_strm_files(json_structure, target_directory, base_url, current_path='
             if not item.get('created'):
                 strm_filename = name.rsplit('.', 1)[0] + '.strm'
                 strm_path = os.path.join(full_path, strm_filename)
+
+                # 检查是否已存在同名的.strm文件
+                if os.path.exists(strm_path):
+                    print(f"{strm_path} 已存在，跳过创建。")
+                    continue
+
                 # 确保目录存在
                 os.makedirs(full_path, exist_ok=True)
                 encoded_file_path = urllib.parse.quote(os.path.join(current_path.replace('\\', '/'), name))
@@ -126,19 +124,6 @@ def create_strm_files(json_structure, target_directory, base_url, current_path='
             new_directory = os.path.join(full_path, name)
             os.makedirs(new_directory, exist_ok=True)
             create_strm_files(item, target_directory, base_url, os.path.join(current_path, name))
-
-
-def load_json_structure(filepath):
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-
-def save_json_structure(filepath, json_structure):
-    with open(filepath, 'a', encoding='utf-8') as f:
-        json.dump(json_structure, f, indent=4)
 
 
 def main():
@@ -154,20 +139,10 @@ def main():
     traverse_directory(root_path, json_structure, base_url, target_directory)
 
     # 修改后的目标文件夹路径
-
     os.makedirs(target_directory, exist_ok=True)  # 确保目标文件夹存在
-
-    json_structure = load_json_structure('directory_structure.json')
-
-    # 假设固定的视频直链是 'http://a.c.com/d/'
-    base_url = site_url + '/d' + root_path + '/'
-    sleep(10)
 
     # 创建 .strm 文件
     create_strm_files(json_structure, target_directory, base_url)
-
-    # 如果需要，可以将 json_structure 写入到 JSON 文件中
-    save_json_structure('directory_structure.json', json_structure)
 
     print('所有strm文件创建完成')
     print('热知识：')
