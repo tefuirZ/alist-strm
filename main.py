@@ -3,8 +3,13 @@ from time import sleep
 import requests
 import configparser
 import os
+import logging
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import concurrent.futures
+import sys
+
+
 
 # 创建配置解析器
 config = configparser.ConfigParser()
@@ -26,6 +31,14 @@ UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML
 
 traversed_paths = []
 
+
+
+logger = logging.getLogger(__name__)
+main_log_file_path = './log/main.log'  # main.py日志保存路径
+main_logger = logging.getLogger(__name__)
+main_logger.setLevel(logging.INFO)
+main_handler = logging.FileHandler(main_log_file_path)
+main_logger.addHandler(main_handler)
 
 def requests_retry_session(
         retries=3,
@@ -70,7 +83,7 @@ def traverse_directory(path, json_structure, base_url, target_directory, is_root
     if directory_info.get('data') and directory_info['data'].get('content'):
         for item in directory_info['data']['content']:
             if item['name'] in ignored_directories:
-                print(f"跳过被忽略的目录: {item['name']}")
+                logger.info(f"跳过被忽略的目录: {item['name']}")
                 continue
 
             if item['is_dir']:
@@ -109,7 +122,7 @@ def create_strm_files(json_structure, target_directory, base_url, current_path='
 
                 # 检查是否已存在同名的.strm文件
                 if os.path.exists(strm_path):
-                    print(f"{strm_path} 已存在，跳过创建。")
+                    logger.info(f"{strm_path} 已存在，跳过创建。")
                     continue
 
                 # 确保目录存在
@@ -119,16 +132,31 @@ def create_strm_files(json_structure, target_directory, base_url, current_path='
                 item['created'] = True
                 with open(strm_path, 'w', encoding='utf-8') as strm_file:
                     strm_file.write(video_url)
-                    print(f"{strm_path} 已创建。")
+                    logger.info(f"{strm_path} 已创建。")
         elif isinstance(item, dict):  # 如果是一个目录，递归处理
             new_directory = os.path.join(full_path, name)
             os.makedirs(new_directory, exist_ok=True)
             create_strm_files(item, target_directory, base_url, os.path.join(current_path, name))
 
 
-def main():
-    global ignored_directories
-    print('脚本运行中。。。。。。。')
+def process_config(config_file):
+    # 创建配置解析器
+    logger.info('脚本运行中,正在处理' +config_file)
+    config = configparser.ConfigParser()
+
+    # 使用 get 方法从配置文件中获取配置值。第一个参数是段名，第二个参数是键名。
+    with open(config_file, 'r', encoding='utf-8') as configfile:
+        config.read_file(configfile)
+
+    # 从配置文件中读取配置信息
+    root_path = config.get('DEFAULT', 'RootPath', fallback="/path/to/root")
+    site_url = config.get('DEFAULT', 'SiteUrl', fallback='www.tefuir0829.cn')
+    target_directory = config.get('DEFAULT', 'TargetDirectory', fallback='E:\\cloud\\')
+    ignored_directories_str = config.get('DEFAULT', 'IgnoredDirectories', fallback='')
+    ignored_directories = [d.strip() for d in ignored_directories_str.split(',') if d.strip()]
+    token = config.get('DEFAULT', 'Token')  # 从配置文件读取固定的Token
+
+    # 其他全局变量和函数的定义...
 
     # 初始化JSON结构体并进行目录遍历
     json_structure = {}
@@ -144,12 +172,29 @@ def main():
     # 创建 .strm 文件
     create_strm_files(json_structure, target_directory, base_url)
 
-    print('所有strm文件创建完成')
-    print('热知识：')
-    print('strm文件可以直接在tmm挂削哦')
-    print('感谢使用，使用中有任何问题欢迎留言')
-    print('博客地址：www.tefuir0829.cn')
+    logger.info(f"配置文件 {config_file} 下的strm文件已经创建完成")
 
+def main():
+    global ignored_directories
+
+
+    # 从命令行参数获取配置文件列表
+    config_files = sys.argv[1:]
+
+    # 检查是否提供了配置文件
+    if not config_files:
+        logger.error("请提供至少一个配置文件路径作为命令行参数")
+        return
+
+    # 并发处理每个配置文件
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        executor.map(process_config, config_files)
+
+    logger.info('所有strm文件创建完成')
+    logger.info('热知识：')
+    logger.info('strm文件可以直接在tmm挂削哦')
+    logger.info('感谢使用，使用中有任何问题欢迎留言')
+    logger.info('博客地址：www.tefuir0829.cn')
 
 if __name__ == '__main__':
     main()
