@@ -10,6 +10,9 @@ import concurrent.futures
 import sys
 
 
+# 配置日志记录器
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # 创建配置解析器
 config = configparser.ConfigParser()
@@ -31,14 +34,10 @@ UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML
 
 traversed_paths = []
 
-
-
+# 配置日志记录器
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-main_log_file_path = './log/main.log'  # main.py日志保存路径
-main_logger = logging.getLogger(__name__)
-main_logger.setLevel(logging.INFO)
-main_handler = logging.FileHandler(main_log_file_path)
-main_logger.addHandler(main_handler)
+
 
 def requests_retry_session(
         retries=3,
@@ -141,7 +140,6 @@ def create_strm_files(json_structure, target_directory, base_url, current_path='
 
 def process_config(config_file):
     # 创建配置解析器
-    logger.info('脚本运行中,正在处理' +config_file)
     config = configparser.ConfigParser()
 
     # 使用 get 方法从配置文件中获取配置值。第一个参数是段名，第二个参数是键名。
@@ -176,7 +174,7 @@ def process_config(config_file):
 
 def main():
     global ignored_directories
-
+    logger.info('脚本运行中。。。。。。。')
 
     # 从命令行参数获取配置文件列表
     config_files = sys.argv[1:]
