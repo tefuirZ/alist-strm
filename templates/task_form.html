@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任务配置</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+        <link rel="shortcut icon" href="https://drive.tefuir0829.cn/d/yyds/img/1/6680ee533aee7.ico" type="image/x-icon">
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+
+        body {
+            background-image: url('https://img.tefuir0829.cn/tu.php');
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }
+        h1 {
+            text-align: center;
+        }
+        .btn-right {
+            float: right;
+        }
+        .readme {
+            margin-bottom: 20px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: .25rem;
+        }
+        .container {
+            background-color: rgba(255, 255, 255, 0.6); /* Add a white background with some transparency */
+            padding: 20px;
+            border-radius: .25rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="my-4">任务配置</h1>
+        <form action="" method="post">
+            <div class="form-group">
+                <label for="config_ids">配置文件</label>
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>选择</th>
+                            <th>名称</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for config in configs %}
+                            <tr>
+                                <td><input type="checkbox" name="config_ids" value="{{ config.id }}" {% if task and config.id in selected_config_ids %}checked{% endif %}></td>
+                                <td>{{ config.name }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="form-group">
+                <label for="cron_expression">定时时间 (Cron 表达式)</label>
+                <input type="text" class="form-control" id="cron_expression" name="cron_expression" placeholder="* * * * *" value="{{ task.cron_expression if task else '' }}" required>
+            </div>
+            <div class="form-group form-check">
+                <input type="checkbox" class="form-check-input" id="enabled" name="enabled" {% if task and task.enabled %}checked{% endif %}>
+                <label class="form-check-label" for="enabled">启用</label>
+            </div>
+            <button type="submit" class="btn btn-primary">保存</button>
+                       <a href="{{ url_for('index') }}" class="btn btn-secondary">取消</a>
+        </form>
+
+                <footer class="text-center mt-4">
+            <p>© 2024 alist-strm配置管理2.0 by <a href="https://www.tefuir0829.cn" target="_blank">tefuir</a></p>
+        </footer>
+    </div>
+</body>
+</html>

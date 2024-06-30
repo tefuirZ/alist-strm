@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>配置管理</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <link rel="shortcut icon" href="https://drive.tefuir0829.cn/d/yyds/img/1/6680ee533aee7.ico" type="image/x-icon">
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+
+        body {
+            background-image: url('https://img.tefuir0829.cn/tu.php');
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }
+        h1 {
+            text-align: center;
+        }
+        .btn-right {
+            float: right;
+        }
+        .readme {
+            margin-bottom: 20px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: .25rem;
+        }
+        .container {
+            background-color: rgba(255, 255, 255, 0.6); /* Add a white background with some transparency */
+            padding: 20px;
+            border-radius: .25rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="my-4">alist-strm配置管理</h1>
+        <div class="readme">
+            <h2>说明</h2>
+            <p>欢迎使用alist-strm配置管理系统！本系统用于管理和执行配置文件以及定时任务。以下是一些基本使用说明：</p>
+            <ul>
+                <li><strong>添加新配置文件：</strong> 点击右上方的“添加新配置文件”按钮，可以添加新的配置文件。</li>
+                <li><strong>运行脚本：</strong> 勾选一个或多个配置文件后，点击“运行脚本（单次）”按钮即可运行相应的脚本。</li>
+                <li><strong>定时任务管理：</strong> 在“定时任务管理”部分，可以添加、编辑或删除定时任务。</li>
+                <li><strong>日志查看：</strong> 点击相应配置文件或任务后的“查看日志”按钮，可以查看详细的运行日志。</li>
+                <li><strong>字幕下载：</strong> 新增网盘源路径字幕自动下载至目的路径。</li>
+            </ul>
+            <p>如果有其他疑问请查阅教程文章：<a href="https://www.tefuir0829.cn/index.php/archives/88/" target="_blank">tefuir博客</a>如还有疑问欢迎评论留言</p>
+            <p>欢迎加入企鹅群聊<a href="http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=i61FSC__ONjn94GR1ge89YyN_vl3gmQV&authKey=TvQIzMiZP9jTNwIPelDHWSbSzAr6Xfy3IbUEhijr2ydgC0aG%2BRfPGAjhjxLkB6U8&noverify=0&group_code=885408333" target="_blank">alist-strm交流群</a></p>
+        </div>
+        <form action="{{ url_for('run_script') }}" method="post">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>选择</th>
+                        <th>名称</th>
+                        <th class="text-right">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for config in configs %}
+                        <tr>
+                            <td><input type="checkbox" name="config_ids" value="{{ config.id }}"></td>
+                            <td>{{ config.name }}</td>
+<td class="text-right">
+    <a href="{{ url_for('edit_config', config_id=config.id) }}" class="btn btn-warning btn-sm">编辑</a>
+    <form action="{{ url_for('delete_config', config_id=config.id) }}" method="post" style="display:inline;">
+        <input type="hidden" name="_method" value="DELETE">
+        <button type="submit" class="btn btn-danger btn-sm">删除</button>
+    </form>
+    <button type="button" class="btn btn-info btn-sm" onclick="viewLog('{{ config.id }}')">查看日志</button>
+    <button type="button" class="btn btn-secondary btn-sm" onclick="copyConfig('{{ config.id }}')">复制配置</button>
+</td>
+
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <button type="submit" class="btn btn-success">运行脚本（单次）</button>
+            <a href="{{ url_for('add_config') }}" class="btn btn-primary mb-3 btn-right">添加新配置文件</a>
+        </form>
+
+        <hr>
+        <h2 class="my-4">定时任务管理</h2>
+        <a href="{{ url_for('add_task') }}" class="btn btn-secondary mb-3">添加新任务</a>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Cron 表达式</th>
+                    <th>启用</th>
+                    <th>配置文件</th>
+                    <th class="text-right">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for task in tasks %}
+                    <tr>
+                        <td>{{ task.id }}</td>
+                        <td>{{ task.cron_expression }}</td>
+                        <td>
+                            <input type="checkbox" class="task-toggle" data-task-id="{{ task.id }}" {% if task.enabled %}checked{% endif %}>
+                        </td>
+                        <td>
+                            <ul>
+                                {% for config in task.configs %}
+                                    <li>{{ config.name }}</li>
+                                {% endfor %}
+                            </ul>
+                        </td>
+                        <td class="text-right">
+                            <a href="{{ url_for('edit_task', task_id=task.id) }}" class="btn btn-warning btn-sm">编辑</a>
+                            <form action="{{ url_for('delete_task', task_id=task.id) }}" method="post" style="display:inline;">
+                                <button type="submit" class="btn btn-danger btn-sm">删除</button>
+                            </form>
+                            <button type="button" class="btn btn-info btn-sm" onclick="viewTaskLog('{{ task.id }}')">查看日志</button>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <footer class="text-center mt-4">
+            <p>© 2024 alist-strm配置管理2.0 by <a href="https://www.tefuir0829.cn" target="_blank">tefuir</a></p>
+        </footer>
+    </div>
+
+    <!-- 日志模态框 -->
+    <div class="modal fade" id="logModal" tabindex="-1" role="dialog" aria-labelledby="logModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="logModalLabel">日志</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="关闭">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <pre id="logContent" style="height: 400px; overflow-y: scroll;"></pre>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    function viewLog(configId) {
+        fetch(`/logs/${configId}`)
+            .then(response => response.text())
+            .then(data => {
+                document.getElementById('logContent').textContent = data;
+                $('#logModal').modal('show');
+            })
+            .catch(error => console.error('Error fetching log:', error));
+    }
+
+    function viewTaskLog(taskId) {
+        fetch(`/task_logs/${taskId}`)
+            .then(response => response.text())
+            .then(data => {
+                document.getElementById('logContent').textContent = data;
+                $('#logModal').modal('show');
+            })
+            .catch(error => console.error('Error fetching task log:', error));
+    }
+
+    function copyConfig(configId) {
+        fetch(`/config/${configId}/copy`, { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('配置复制成功');
+                    location.reload();  // 刷新页面以加载新的配置
+                } else {
+                    alert('配置复制失败: ' + data.error);
+                }
+            })
+            .catch(error => console.error('Error copying config:', error));
+    }
+
+    $(document).ready(function(){
+        $('.task-toggle').change(function(){
+            var taskId = $(this).data('task-id');
+            $.post(`/task/${taskId}/toggle`, function(response){
+                if(response.success){
+                    alert('任务状态更新成功');
+                    location.reload();  // 刷新页面以重新加载定时任务
+                } else {
+                    alert('任务状态更新失败: ' + response.error);
+                }
+            });
+        });
+    });
+</script>
+
+</body>
+</html>

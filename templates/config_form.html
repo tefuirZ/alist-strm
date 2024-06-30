@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ config.name if config else '添加新配置' }}</title>
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+        <link rel="shortcut icon" href="https://drive.tefuir0829.cn/d/yyds/img/1/6680ee533aee7.ico" type="image/x-icon">
+    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+
+        body {
+            background-image: url('https://img.tefuir0829.cn/tu.php');
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }
+        h1 {
+            text-align: center;
+        }
+        .btn-right {
+            float: right;
+        }
+        .readme {
+            margin-bottom: 20px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: .25rem;
+        }
+        .container {
+            background-color: rgba(255, 255, 255, 0.6); /* Add a white background with some transparency */
+            padding: 20px;
+            border-radius: .25rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="my-4">{{ config.name if config else '添加新配置' }}</h1>
+        <form action="" method="post">
+            <div class="form-group">
+                <label for="name">配置名称</label>
+                <input type="text" class="form-control" id="name" name="name" value="{{ config.name if config else '' }}" required>
+            </div>
+            <div class="form-group">
+                <label for="root_path">监控路径（比如你要监控https://域名：端口/路径，就填/路径） </label>
+                <input type="text" class="form-control" id="root_path" name="root_path" value="{{ config.root_path if config else '' }}" required>
+            </div>
+            <div class="form-group">
+                <label for="site_url">alist的URL（#alist地址，注意一定不要带/）</label>
+                <input type="text" class="form-control" id="site_url" name="site_url" value="{{ config.site_url if config else '' }}" required>
+            </div>
+            <div class="form-group">
+                <label for="target_directory">目标目录（结尾不要带/）</label>
+                <input type="text" class="form-control" id="target_directory" name="target_directory" value="{{ config.target_directory if config else '' }}" required>
+            </div>
+            <div class="form-group">
+                <label for="ignored_directories">忽略的目录（可以随便填，但是不要填你监控路径里有的。用逗号分隔）注意：必填！</label>
+                <input type="text" class="form-control" id="ignored_directories" name="ignored_directories" value="{{ config.ignored_directories if config else '' }}">
+            </div>
+            <div class="form-group">
+                <label for="token">令牌（alist后台获取token）</label>
+                <input type="text" class="form-control" id="token" name="token" value="{{ config.token if config else '' }}" required>
+            </div>
+            <div class="form-group form-check">
+                <input type="checkbox" class="form-check-input" id="update_existing" name="update_existing" {{ 'checked' if config and config.update_existing else '' }}>
+                <label class="form-check-label" for="update_existing">开启对比功能（beat)</label>
+            </div>
+            <button type="submit" class="btn btn-primary">{{ '更新' if config else '添加' }}</button>
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">取消</a>
+        </form>
+                <footer class="text-center mt-4">
+            <p>© 2024 alist-strm配置管理2.0 by <a href="https://www.tefuir0829.cn" target="_blank">tefuir</a></p>
+        </footer>
+    </div>
+<script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.5.1/jquery.slim.min.js"></script>
+<script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/js/bootstrap.min.js"></script>
+</body>
+</html>
