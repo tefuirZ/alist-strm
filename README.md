@@ -12,169 +12,126 @@
 
 ![image-20240411063503148](https://drive.tefuir0829.cn/d/yyds/img/1/66171418c8aee.png)
 
-食用方式：
-
-```
-#因为脚本是使用Python写的，所以一定要有Python环境。版本不需要多高，实测3.11也可以正常运行。
-```
-
-[github链接](https://github.com/tefuirZ/alist-strm)
-
-[脚本地址]([raw.githubusercontent.com/tefuirZ/alist-strm/main/main.py](https://raw.githubusercontent.com/tefuirZ/alist-strm/main/main.py))
-
-注：仅脚本单体会报错，所以需要把config.ini一起下载或者自建一个。
-
-```ini
-config.ini文件示例:
-
-[DEFAULT]
-RootPath = /yyds
-#alist路径，即为脚本开始路径
-SiteUrl = https://wwww.tefuir0829.cn
-#alist地址，注意一定不要带/
-TargetDirectory = /home/tefuir
-#目标路径
-Username = admin
-#alist账号
-Password = tefuir
-#alist密码
-
-#Python脚本是比较注意这些缩进的，还有需要特别注意的就是/斜杠  有些地方斜杠不能丢 有些不能有，有了就报错了
-```
 
 
+# alist-strm脚本webUI版本
+（将alist的视频文件生成媒体播放设备可播放的strm文件脚本（带webUI界面））
+##  更新日志：
 
-Python无非就是模块问题，群辉的话直接使用套件安装Python3.0以上版本。安装完进入ssh使用命令安装模块，
+1. 增加配置文件管理webUI管理界面
 
-```sh
-sudo python3.11 -m pip install requests（目前好像也就这个模块没有，如果有的话换一下模块名一样的。看报错）
-```
+2. 增加定时任务配置
 
-Linux系统下因为很多环境很复杂，而本脚本也不是长期需要使用，推荐使用Python的虚拟环境直接运行。
+3. 支持多线程运行，选择配置文件运行多线程运行
 
-```sh
-安装Python:
-首先检查系统中是否已经安装了Python。在终端中输入以下命令：
+4. 优化代码结构
 
-python --version
-如果没有安装Python或者需要安装新的版本，可以按照以下步骤继续。
+5. 弃用.ini方式的配置文件存储方式，更改为轻量级数据库SQLlite
 
-使用包管理器安装Python。在大多数Linux发行版中，可以使用以下命令安装Python：
+6. 简化docker配置方法 只需要映射一个端口和一个存放的路径即可
 
-对于 Ubuntu 或 Debian 等基于 apt 的系统：
+7. 新增文件对比功能（beat）
 
-sudo apt update
-sudo apt install python3
-对于 CentOS 或 Fedora 等基于 yum 的系统：
+8. 增加复制配置功能
 
-sudo yum install python3
-创建和运行Python虚拟环境：
-安装 virtualenv （如果尚未安装）：
+9. 增加字幕下载功能
 
-sudo apt install python3-venv   # 对于 Debian/Ubuntu
-sudo yum install python3-virtualenv  # 对于 CentOS/Fedora
-创建一个新的虚拟环境：
+##  部署
 
-python3 -m venv myenv
-这将在当前目录中创建一个名为 myenv 的新虚拟环境。
+###  docker一键部署
 
-激活虚拟环境：
-
-source myenv/bin/activate
-一旦激活虚拟环境，你会注意到终端提示符前面会显示虚拟环境的名称。
-
-在虚拟环境中安装依赖包或运行Python脚本：
-
-pip install package_name
-python your_script.py
-退出虚拟环境：
-
-deactivate
-
-###这段直接复制ChatGPT的回答的，大佬们勿喷。。。。。。
-```
-
-
-
-Windows下食用：
-
-Windows下食用其实也还好，按照百度上的教程把Python装上之后，也是同样的道理安装模块。模块安装完之后修改配置文件，然后就可以运行了。
-
-下面是来着ChatGPT的回答
+#### 命令行版本：
 
 ```shell
-在Windows系统下安装Python或者运行Python虚拟环境可以按照以下步骤进行：
+docker run -d --name alist-strm -p 18080:5000 -v /home:/home itefuir/alist-strm:latest
 
-### 安装Python:
-
-1. 下载Python安装程序：
-   
-   访问 Python 官方网站（https://www.python.org/downloads/）下载最新版本的 Python 安装程序（通常是 .exe 文件）。
-
-2. 运行安装程序：
-   
-   - 双击下载的 Python 安装程序。
-   - 在安装向导中选择 "Add Python x.x to PATH" 选项，这样可以在命令提示符中直接运行 Python。
-   - 点击 "Install Now" 完成安装。
-
-3. 验证安装：
-   
-   打开命令提示符（Win + R，输入 `cmd` 回车），输入以下命令来验证 Python 是否成功安装：
-   
-   ```bash
-   python --version
-   ```
-
-### 创建和运行Python虚拟环境：
-
-1. 安装 `virtualenv` （如果尚未安装）：
-
-   在命令提示符中运行以下命令：
-
-   ```bash
-   pip install virtualenv
-   ```
-
-2. 创建一个新的虚拟环境：
-
-   在命令提示符中运行以下命令：
-
-   ```bash
-   virtualenv myenv
-   ```
-
-   这将在当前目录中创建一个名为 `myenv` 的新虚拟环境。
-
-3. 激活虚拟环境：
-
-   在命令提示符中运行以下命令：
-
-   ```bash
-   myenv\Scripts\activate
-   ```
-
-   一旦激活虚拟环境，你会注意到命令提示符前面会显示虚拟环境的名称。
-
-4. 在虚拟环境中安装依赖包或运行Python脚本：
-
-   在激活的虚拟环境中，你可以使用 `pip` 安装依赖包或者运行 Python 脚本。
-
-5. 退出虚拟环境：
-
-   在命令提示符中运行以下命令来退出虚拟环境：
-
-   ```bash
-   deactivate
-   ```
-
-这些是在 Windows 系统下安装 Python 或者运行 Python 虚拟环境的基本步骤。希望这些指导可以帮助你顺利在 Windows 系统中使用
+#18080是宿主机端口 不是一定要这个 容器端口5000是一定要的
+#/home是本地路径
 ```
 
+#### docker-compose.yaml配置
 
+```yaml
+version: "3"
+services:
+    alist-strm:
+        stdin_open: true
+        tty: true
+        volumes:
+            #跟命令行一样的 前面是宿主机的目录
+            - /volume1/video:/volume1/video
+        ports:
+        	#:前面是宿主机的端口，自由选择
+            - "15000:5000"
+        environment:
+            - TIMEZONE=Asia/Shanghai
+        container_name: alist-strm
+        #restart: always
+        image: itefuir/alist-strm:latest
+        network_mode: bridge
+```
 
-目前已知问题：
+###   拉取docker镜像网络原因看这里
 
-- 如果alist的原路径有中文的话，会导致一些情况下流媒体服务器播放不出来的情况。
+如果本地镜像拉取困难的可以前往镜像包下载地址下载后导入：[传送门](https://drive.tefuir0829.cn/d/tianyi-geren1/ruanjian/alist-strm.tar)
 
-- 无法自动识别ISO文件
-- 暂时无法处理图片以及nfo文件
+导入方式就去百度啦 这里就不说啦
+
+##  常见问题
+
+##### 配置格式是什么
+
+运行起来之后他会有个默认配置。如果不会填可以参考默认配置填入配置
+
+![image-20240628213845478](https://drive.tefuir0829.cn/d/yyds/img/1/667ebce4d7a46.png)
+
+配置名称随意修改，其中需要注意的是 忽略目录是必填的，不知道填啥的可以直接填入`/1` 而后更新即可 如果是新建的同理。
+
+##### `alist`令牌如何获取：
+
+```
+进入alist网页端，使用管理员账号密码登陆至后台
+点击设置后
+	点击其他
+就可以看到令牌啦
+```
+
+![image-20240628214258701](https://drive.tefuir0829.cn/d/yyds/img/1/667ebde1d9178.png)
+
+#####  关于定时任务
+
+定时任务选择需要进行定时的任务，在corn表达式中添加你想要的间隔时间。不会填写corn的可以参考
+
+```
+每个字段的取值范围和允许的特殊字符如下：
+
+秒 (秒 可选，在某些系统或应用中才支持): 0-59
+分钟: 0-59
+小时: 0-23
+日期: 1-31 （注意一些月份没有31日）
+月份: 1-12 或 JAN-DEC
+星期: 0-6 或 SUN-SAT，其中0和7都代表周日
+（对于不包括秒的cron表达式，则从分钟开始）
+Cron表达式中的特殊字符含义：
+
+*：代表任何可能的值，例如在分钟字段表示每分钟。
+,：用于指定多个值，比如 MON,WED,FRI 表示周一、周三和周五。
+-：表示范围，如 1-5 表示1到5之间的所有数字。
+/：用于指定间隔频率，如 0/15 在分钟字段表示每15分钟执行一次。
+示例
+每天凌晨1点执行：0 1 * * *
+每周一到周五的上午9:30执行：30 9 * * 1-5
+每隔5分钟执行一次：*/5 * * * *
+每月1号和15号的下午2点执行：0 14 1,15 * *
+如果需要包含秒，表达式变为7个字段，第一个字段表示秒，其余相同，例如：
+
+每隔10秒执行一次：*/10 * * * * *
+```
+
+此信息来自于大模型AI。 填入之后只有到你设定的那个时间他才会自动运行 可以看定时任务的日志查看是否运行了
+
+#####   关于多线程运行
+
+本脚本先前都是用的单线程多配置文件的方式运行的，如果alist上的资源较多的话可能会造成等待时间过长等等。如果alist是上了cdn或者防火墙的建议将运行本脚本的ip加入白名单以免请求过快触发阈值。
+
+现在是你只要勾选了配置文件并且点击运行（或定时任务设定）它就会自动以每个配置文件为一个线程进行创建strm文件。
