@@ -104,7 +104,8 @@ def traverse_directory(path, json_structure, base_url, api_base_url, target_dire
                 json_structure[item['name']] = {
                     'type': 'file',
                     'size': item['size'],
-                    'modified': item['modified']
+                    'modified': item['modified'],
+                    'sign': item['sign']
                 }
 
     if not is_root:  # 如果不是根目录，表示已达到末端，开始写入 .strm 文件
@@ -136,7 +137,14 @@ def create_strm_files(json_structure, target_directory, base_url, current_path='
                     # 确保目录存在
                     full_path.mkdir(parents=True, exist_ok=True)
                     encoded_file_path = urllib.parse.quote((Path(current_path) / name).as_posix())
-                    video_url = base_url + encoded_file_path
+
+                    # 获取文件签名
+                    sign = item.get('sign')
+                    if not sign:
+                        logger.error(f"未找到文件 {name} 的签名")
+                        continue
+
+                    video_url = base_url + encoded_file_path + "?sign=" + sign
                     item['created'] = True
                     with open(strm_path, 'w', encoding='utf-8') as strm_file:
                         strm_file.write(video_url)
