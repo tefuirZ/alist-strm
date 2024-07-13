@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>脚本配置</title>
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <script src="{{ url_for('static', filename='js/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
+    <link rel="shortcut icon" href="{{ url_for('static', filename='img/1.ico') }}" type="image/x-icon">
+    <style>
+        body {
+            background-color: #c1dcb9;
+            background-size: cover;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }
+        h1 {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .container {
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 20px;
+            border-radius: .25rem;
+            margin-top: 20px;
+        }
+        footer {
+            text-align: center;
+            background-color: rgba(255, 255, 255, 0.6);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>脚本配置</h1>
+        <form method="post">
+            <div class="form-group">
+                <label for="video_formats">视频格式：</label>
+                <input type="text" class="form-control" id="video_formats" name="video_formats" value="{{ user_config.video_formats }}" required>
+            </div>
+            <div class="form-group">
+                <label for="subtitle_formats">字幕格式：</label>
+                <input type="text" class="form-control" id="subtitle_formats" name="subtitle_formats" value="{{ user_config.subtitle_formats }}" required>
+            </div>
+            <div class="form-group">
+                <label for="image_formats">图片格式：</label>
+                <input type="text" class="form-control" id="image_formats" name="image_formats" value="{{ user_config.image_formats }}" required>
+            </div>
+            <div class="form-group">
+                <label for="download_threads">脚本运行线程数：（建议10以内，如果调大导致机器崩溃勿cue）</label>
+                <input type="number" class="form-control" id="download_threads" name="download_threads" value="{{ user_config.download_threads }}" required>
+            </div>
+            <div class="form-group">
+                <label for="enable_metadata_download">启用元数据下载：</label>
+                <select class="form-control" id="enable_metadata_download" name="enable_metadata_download">
+                    <option value="1" {% if user_config.enable_metadata_download %}selected{% endif %}>启用</option>
+                    <option value="0" {% if not user_config.enable_metadata_download %}selected{% endif %}>禁用</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="enable_invalid_link_check">启用失效链接检查：</label>
+                <select class="form-control" id="enable_invalid_link_check" name="enable_invalid_link_check">
+                    <option value="1" {% if user_config.enable_invalid_link_check %}selected{% endif %}>启用</option>
+                    <option value="0" {% if not user_config.enable_invalid_link_check %}selected{% endif %}>禁用</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="enable_nfo_download">启用nfo下载：</label>
+                <select class="form-control" id="enable_nfo_download" name="enable_nfo_download">
+                    <option value="1" {% if user_config.enable_nfo_download %}selected{% endif %}>启用</option>
+                    <option value="0" {% if not user_config.enable_nfo_download %}selected{% endif %}>禁用</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="enable_subtitle_download">启用字幕下载：</label>
+                <select class="form-control" id="enable_subtitle_download" name="enable_subtitle_download">
+                    <option value="1" {% if user_config.enable_subtitle_download %}selected{% endif %}>启用</option>
+                    <option value="0" {% if not user_config.enable_subtitle_download %}selected{% endif %}>禁用</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="enable_image_download">启用图片下载：</label>
+                <select class="form-control" id="enable_image_download" name="enable_image_download">
+                    <option value="1" {% if user_config.enable_image_download %}selected{% endif %}>启用</option>
+                    <option value="0" {% if not user_config.enable_image_download %}selected{% endif %}>禁用</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="enable_refresh">启用alist强制刷新：</label>  <!-- 添加此部分 -->
+                <select class="form-control" id="enable_refresh" name="enable_refresh">
+                    <option value="1" {% if user_config.enable_refresh %}selected{% endif %}>启用</option>
+                    <option value="0" {% if not user_config.enable_refresh %}selected{% endif %}>禁用</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <button type="submit" class="btn btn-primary">保存配置</button>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary ml-2">返回首页</a>
+            </div>
+        </form>
+    </div>
+    <footer>
+        <p>© 2024 alist-strm配置管理最终版 by <a href="https://www.tefuir0829.cn" target="_blank">tefuir</a></p>
+    </footer>
+</body>
+</html>

@@ -4,13 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>任务配置</title>
-    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-        <link rel="shortcut icon" href="https://drive.tefuir0829.cn/d/yyds/img/1/6680ee533aee7.ico" type="image/x-icon">
-    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='img/1.ico') }}" type="image/x-icon">
         <style>
 
         body {
-            background-image: url('https://img.tefuir0829.cn/tu.php');
+            background-color: #c1dcb9;
             background-size: cover;
             background-repeat: no-repeat;
             background-attachment: fixed;
@@ -71,7 +70,7 @@
         </form>
 
                 <footer class="text-center mt-4">
-            <p>© 2024 alist-strm配置管理2.0 by <a href="https://www.tefuir0829.cn" target="_blank">tefuir</a></p>
+            <p>© 2024 alist-strm配置管理最终版 by <a href="https://www.tefuir0829.cn" target="_blank">tefuir</a></p>
         </footer>
     </div>
 </body>

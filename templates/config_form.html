@@ -4,13 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ config.name if config else '添加新配置' }}</title>
-    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
-        <link rel="shortcut icon" href="https://drive.tefuir0829.cn/d/yyds/img/1/6680ee533aee7.ico" type="image/x-icon">
-    <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+ <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
+        <link rel="shortcut icon" href="{{ url_for('static', filename='img/1.ico') }}" type="image/x-icon">
         <style>
 
         body {
-            background-image: url('https://img.tefuir0829.cn/tu.php');
+            background-color: #c1dcb9;
             background-size: cover;
             background-repeat: no-repeat;
             background-attachment: fixed;
@@ -63,18 +62,23 @@
                 <label for="token">令牌（alist后台获取token）</label>
                 <input type="text" class="form-control" id="token" name="token" value="{{ config.token if config else '' }}" required>
             </div>
-            <div class="form-group form-check">
-                <input type="checkbox" class="form-check-input" id="update_existing" name="update_existing" {{ 'checked' if config and config.update_existing else '' }}>
-                <label class="form-check-label" for="update_existing">开启对比功能（beat)</label>
+            <div class="form-group">
+                <label for="update_existing">alist是否启用签名（非特殊需求不推荐打开，因为会对alist产生一定负担）</label>
+                <select class="form-control" id="update_existing" name="update_existing">
+                    <option value="0" {{ 'selected' if config and not config.update_existing else '' }}>禁用</option>
+                    <option value="1" {{ 'selected' if config and config.update_existing else '' }}>启用</option>
+                </select>
             </div>
+            
+            
             <button type="submit" class="btn btn-primary">{{ '更新' if config else '添加' }}</button>
             <a href="{{ url_for('index') }}" class="btn btn-secondary">取消</a>
         </form>
                 <footer class="text-center mt-4">
-            <p>© 2024 alist-strm配置管理2.0 by <a href="https://www.tefuir0829.cn" target="_blank">tefuir</a></p>
+            <p>© 2024 alist-strm配置管理最终版 by <a href="https://www.tefuir0829.cn" target="_blank">tefuir</a></p>
         </footer>
     </div>
-<script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.5.1/jquery.slim.min.js"></script>
-<script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script src="{{ url_for('static', filename='js/jquery.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bootstrap.min.js') }}"></script>
 </body>
 </html>
