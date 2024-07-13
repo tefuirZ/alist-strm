@@ -1,0 +1,11 @@
+Flask==2.0.3
+Flask-SQLAlchemy==2.5.1
+Flask-APScheduler==1.12.3
+requests==2.26.0
+urllib3==1.26.7
+Werkzeug==2.0.3
+Jinja2==3.0.3
+MarkupSafe==2.0.1
+SQLAlchemy==1.4.22
+croniter==1.0.15
+gunicorn==20.1.0
