@@ -85,7 +85,7 @@ if user_count == 0:
         1,  # 默认开启nfo文件下载
         1,  # 默认开启字幕下载
         1,  # 默认开启图片下载
-        1   # 默认开启刷新
+        1  # 默认开启刷新
     ))
     conn.commit()
 
@@ -99,6 +99,7 @@ total_created_count = 0
 # 重新打开数据库连接
 conn = sqlite3.connect(db_path_str)
 cursor = conn.cursor()
+
 
 # 从数据库获取用户配置
 def get_user_config():
@@ -122,11 +123,14 @@ def get_user_config():
         logger.error("用户配置不完整或未找到用户配置")
         sys.exit(1)
 
+
 user_config = get_user_config()
+
 
 def validate_config_item(name, value):
     if value.endswith('/'):
         raise ValueError(f"{name} 配置项不能以 '/' 结尾: {value}")
+
 
 def validate_config(root_path, site_url, target_directory, ignored_directories):
     validate_config_item("root_path", root_path)
@@ -134,6 +138,7 @@ def validate_config(root_path, site_url, target_directory, ignored_directories):
     validate_config_item("target_directory", target_directory)
     for directory in ignored_directories:
         validate_config_item("ignored_directories", directory)
+
 
 def requests_retry_session(
         retries=3,
@@ -153,6 +158,7 @@ def requests_retry_session(
     session.mount('http://', adapter)
     session.mount('https://', adapter)
     return session
+
 
 def list_directory(path, api_base_url, token, user_agent):
     try:
@@ -188,6 +194,7 @@ def list_directory(path, api_base_url, token, user_agent):
         logger.error(f"响应内容: {response_list.text}")
         raise
 
+
 def traverse_directory(path, json_structure, api_base_url, token, user_agent, ignored_directories):
     try:
         directory_info = list_directory(path, api_base_url, token, user_agent)
@@ -204,7 +211,9 @@ def traverse_directory(path, json_structure, api_base_url, token, user_agent, ig
                         new_path = os.path.join(path, item['name'])
                         new_json_object = {}
                         json_structure[item['name']] = new_json_object
-                        futures.append(executor.submit(traverse_directory, new_path, new_json_object, api_base_url, token, user_agent, ignored_directories))
+                        futures.append(
+                            executor.submit(traverse_directory, new_path, new_json_object, api_base_url, token,
+                                            user_agent, ignored_directories))
                     else:
                         json_structure[item['name']] = {
                             'type': 'file',
@@ -212,7 +221,7 @@ def traverse_directory(path, json_structure, api_base_url, token, user_agent, ig
                             'modified': item['modified'],
                             'sign': item.get('sign')
                         }
-                
+
                 # 等待所有任务完成
                 for future in concurrent.futures.as_completed(futures):
                     try:
@@ -223,13 +232,16 @@ def traverse_directory(path, json_structure, api_base_url, token, user_agent, ig
     except Exception as e:
         raise  # 确保异常被抛出以终止脚本
 
+
 def is_video_file(filename):
     return any(filename.lower().endswith(ext) for ext in user_config['video_formats'])
+
 
 def is_subtitle_file(filename):
     if user_config['enable_subtitle_download']:
         return any(filename.lower().endswith(ext) for ext in user_config['subtitle_formats'])
     return False
+
 
 def is_metadata_file(filename):
     metadata_extensions = []
@@ -239,10 +251,12 @@ def is_metadata_file(filename):
         metadata_extensions.append('.xml')
     return any(filename.lower().endswith(ext) for ext in metadata_extensions)
 
+
 def is_image_file(filename):
     if user_config['enable_image_download']:
         return any(filename.lower().endswith(ext) for ext in user_config['image_formats'])
     return False
+
 
 def create_strm_files(json_structure, target_directory, base_url, update_existing, current_path=''):
     global total_created_count
@@ -272,7 +286,8 @@ def create_strm_files(json_structure, target_directory, base_url, update_existin
                 new_directory = full_path / name
                 if not new_directory.exists():
                     new_directory.mkdir(parents=True, exist_ok=True)
-                create_strm_files(item, target_directory, base_url, update_existing, (Path(current_path) / name).as_posix())
+                create_strm_files(item, target_directory, base_url, update_existing,
+                                  (Path(current_path) / name).as_posix())
             except Exception as e:
                 logger.error(f"处理子目录时出错: {e}")
                 continue
@@ -302,18 +317,20 @@ def download_image_files(json_structure, base_url, current_path, full_path):
             except Exception as e:
                 logger.error(f"下载图片文件时出错: {e}")
 
+
 def create_strm_file(strm_path, base_url, name, current_path, json_structure, sign=None):
     try:
         encoded_file_path = urllib.parse.quote((Path(current_path) / name).as_posix(), safe='')
         video_url = base_url + encoded_file_path
-        
+
         if sign:
             video_url += "?sign=" + sign
 
         with open(strm_path, 'w', encoding='utf-8') as strm_file:
             strm_file.write(video_url)
 
-        if (user_config['enable_nfo_download'] or user_config['enable_subtitle_download'] or user_config['enable_image_download']) and has_related_files(json_structure, name):
+        if (user_config['enable_nfo_download'] or user_config['enable_subtitle_download'] or user_config[
+            'enable_image_download']) and has_related_files(json_structure, name):
             download_related_files(json_structure, name, base_url, strm_path.parent, current_path)
     except Exception as e:
         logger.error(f"创建 .strm 文件时出错: {e}")
@@ -325,6 +342,7 @@ def has_related_files(json_structure, video_name):
         if name.startswith(base_name) and (is_subtitle_file(name) or is_metadata_file(name) or is_image_file(name)):
             return True
     return False
+
 
 def download_related_files(json_structure, video_name, base_url, full_path, current_path):
     base_name = video_name.rsplit('.', 1)[0]
@@ -339,6 +357,7 @@ def download_related_files(json_structure, video_name, base_url, full_path, curr
                 future.result()
             except Exception as e:
                 logger.error(f"下载相关文件时出错: {e}")
+
 
 def download_file(base_url, current_path, name, full_path):
     file_path = full_path / name
@@ -359,8 +378,10 @@ def download_file(base_url, current_path, name, full_path):
     except Exception as e:
         logger.error(f"下载文件时出错: {e}")
 
+
 def check_path_exists(path):
     return Path(path).exists()
+
 
 def check_and_delete_invalid_links(json_structure, target_directory, current_path=''):
     global total_valid_count, total_invalid_count
@@ -399,6 +420,7 @@ def check_and_delete_invalid_links(json_structure, target_directory, current_pat
             if file.endswith('.strm'):
                 total_valid_count += 1
 
+
 def delete_directory_contents(directory):
     if not check_path_exists(directory):
         logger.error(f"目录不存在: {directory}")
@@ -413,6 +435,7 @@ def delete_directory_contents(directory):
                 item.unlink()
     except Exception as e:
         logger.error(f"删除目录内容时出错: {e}")
+
 
 def process_config(config_id):
     try:
@@ -485,6 +508,7 @@ def main():
         else:
             logger.error(f"脚本运行过程中发生错误: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

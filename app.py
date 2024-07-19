@@ -34,10 +34,12 @@ scheduler = APScheduler()
 scheduler.init_app(app)
 scheduler.start()  # 启动调度器
 
+
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
+
 
 class Config(db.Model):
     id = db.Column(db.String(6), primary_key=True, default=lambda: str(random.randint(100000, 999999)))
@@ -49,10 +51,13 @@ class Config(db.Model):
     token = db.Column(db.String(200), nullable=False)
     update_existing = db.Column(db.Boolean, default=False)
 
+
 task_config = db.Table('task_config',
                        db.Column('task_id', db.String(6), db.ForeignKey('user_task.id'), primary_key=True),
                        db.Column('config_id', db.String(6), db.ForeignKey('config.id'), primary_key=True)
                        )
+
+
 class UserConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     video_formats = db.Column(db.String(200), nullable=False, default='.mp4,.mkv,.avi,.mov,.flv,.wmv,.ts,.m2ts')
@@ -67,13 +72,13 @@ class UserConfig(db.Model):
     enable_refresh = db.Column(db.Boolean, nullable=False, default=True)
 
 
-
 class UserTask(db.Model):
     id = db.Column(db.String(6), primary_key=True, default=lambda: str(random.randint(100000, 999999)))
     cron_expression = db.Column(db.String(100), nullable=False)
     enabled = db.Column(db.Boolean, default=False)
     configs = db.relationship('Config', secondary=task_config, lazy='subquery',
                               backref=db.backref('tasks', lazy=True))
+
 
 def add_missing_column(engine, table_name, column, default_value):
     inspector = inspect(engine)
@@ -85,6 +90,7 @@ def add_missing_column(engine, table_name, column, default_value):
                 conn.execute(f'UPDATE {table_name} SET {column.name} = {default_value}')
             except OperationalError as e:
                 logger.error(f"添加列 {column.name} 时出错: {e}")
+
 
 def add_task_to_scheduler(task):
     for config in task.configs:  # 遍历任务关联的所有配置
@@ -101,7 +107,7 @@ def add_task_to_scheduler(task):
                 handler.setLevel(logging.INFO)
                 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
                 handler.setFormatter(formatter)
-                
+
                 apscheduler_logger = logging.getLogger('apscheduler')
                 apscheduler_logger.setLevel(logging.INFO)
                 apscheduler_logger.addHandler(handler)
@@ -114,7 +120,7 @@ def add_task_to_scheduler(task):
                     **cron_parser(task.cron_expression)
                 )
                 logger.info(f"任务 {task.id} 的配置 {config.id} 已添加到调度器，cron 表达式: {task.cron_expression}")
-                
+
                 # 移除处理程序
                 apscheduler_logger.removeHandler(handler)
             except Exception as e:
@@ -123,24 +129,29 @@ def add_task_to_scheduler(task):
             logger.info(f"任务 {task.id} 的配置 {config.id} 已存在于调度器中，跳过添加。")
 
 
-
-
-
 def init_app(app):
     with app.app_context():
         engine = db.get_engine()
         # 添加所有缺失的列
-        add_missing_column(engine, 'user_config', Column('enable_refresh', Boolean, nullable=False, server_default='1'), '1')
-        add_missing_column(engine, 'user_config', Column('enable_nfo_download', Boolean, nullable=False, server_default='1'), '1')
-        add_missing_column(engine, 'user_config', Column('enable_subtitle_download', Boolean, nullable=False, server_default='1'), '1')
-        add_missing_column(engine, 'user_config', Column('enable_image_download', Boolean, nullable=False, server_default='1'), '1')
-        add_missing_column(engine, 'user_config', Column('enable_metadata_download', Boolean, nullable=False, server_default='1'), '1')
-        add_missing_column(engine, 'user_config', Column('enable_invalid_link_check', Boolean, nullable=False, server_default='1'), '1')
+        add_missing_column(engine, 'user_config', Column('enable_refresh', Boolean, nullable=False, server_default='1'),
+                           '1')
+        add_missing_column(engine, 'user_config',
+                           Column('enable_nfo_download', Boolean, nullable=False, server_default='1'), '1')
+        add_missing_column(engine, 'user_config',
+                           Column('enable_subtitle_download', Boolean, nullable=False, server_default='1'), '1')
+        add_missing_column(engine, 'user_config',
+                           Column('enable_image_download', Boolean, nullable=False, server_default='1'), '1')
+        add_missing_column(engine, 'user_config',
+                           Column('enable_metadata_download', Boolean, nullable=False, server_default='1'), '1')
+        add_missing_column(engine, 'user_config',
+                           Column('enable_invalid_link_check', Boolean, nullable=False, server_default='1'), '1')
         db.create_all()
+
 
 def scheduled_task(config_id, task_id):
     logger.info(f"定时任务触发，配置ID: {config_id}, 任务ID: {task_id}")
     run_task_with_logging(config_id, task_id)
+
 
 def run_task_with_logging(config_id, task_id):
     log_dir = 'logs'
@@ -153,7 +164,7 @@ def run_task_with_logging(config_id, task_id):
     handler.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(message)s')
     handler.setFormatter(formatter)
-    
+
     # 添加日志处理程序到 apscheduler.logger
     apscheduler_logger = logging.getLogger('apscheduler')
     apscheduler_logger.setLevel(logging.INFO)
@@ -203,6 +214,7 @@ def run_task_with_logging(config_id, task_id):
     # 移除处理程序
     apscheduler_logger.removeHandler(handler)
 
+
 @app.before_first_request
 def before_first_request():
     init_app(app)  # 在第一次请求之前初始化应用，确保缺失的字段被添加
@@ -211,6 +223,7 @@ def before_first_request():
         db.session.add(default_user_config)
         db.session.commit()
 
+
 @app.before_request
 def before_request():
     if not User.query.first() and request.endpoint != 'register':
@@ -218,11 +231,13 @@ def before_request():
     elif 'user_id' not in session and request.endpoint not in ['login', 'register', 'static']:
         return redirect(url_for('login'))
 
+
 @app.route('/')
 def index():
     configs = Config.query.all()
     tasks = UserTask.query.all()
     return render_template('index.html', configs=configs, tasks=tasks)
+
 
 @app.route('/config/new', methods=['GET', 'POST'])
 def add_config():
@@ -242,6 +257,7 @@ def add_config():
         return redirect(url_for('index'))
     return render_template('config_form.html', config=None)
 
+
 @app.route('/config/<config_id>/edit', methods=['GET', 'POST'])
 def edit_config(config_id):
     config = db.session.get(Config, config_id)
@@ -258,6 +274,7 @@ def edit_config(config_id):
         return redirect(url_for('index'))
     return render_template('config_form.html', config=config)
 
+
 @app.route('/config/<config_id>/delete', methods=['POST'])
 def delete_config(config_id):
     config = db.session.get(Config, config_id)
@@ -269,6 +286,7 @@ def delete_config(config_id):
     logger.info(f"配置ID {config_id} 已删除")
     return redirect(url_for('index'))
 
+
 @app.route('/run', methods=['POST'])
 def run_script():
     config_ids = request.form.getlist('config_ids')
@@ -277,6 +295,7 @@ def run_script():
         thread = threading.Thread(target=run_script_with_logging, args=(config_id,))
         thread.start()
     return redirect(url_for('index'))
+
 
 def run_script_with_logging(config_id):
     logger.info(f"启动子进程，配置ID: {config_id}")
@@ -309,6 +328,7 @@ def run_script_with_logging(config_id):
         log_file.write(f"子进程结束，返回码: {process.returncode}\n")
         log_file.flush()
 
+
 @app.route('/task/new', methods=['GET', 'POST'])
 def add_task():
     configs = Config.query.all()
@@ -329,6 +349,7 @@ def add_task():
             add_task_to_scheduler(new_task)
         return redirect(url_for('index'))
     return render_template('task_form.html', configs=configs, selected_config_ids=[])
+
 
 @app.route('/task/<task_id>/edit', methods=['GET', 'POST'])
 def edit_task(task_id):
@@ -365,6 +386,7 @@ def delete_task(task_id):
     logger.info(f"任务ID {task_id} 已删除")
     return redirect(url_for('index'))
 
+
 @app.route('/task/<task_id>/toggle', methods=['POST'])
 def toggle_task(task_id):
     task = db.session.get(UserTask, task_id)
@@ -377,6 +399,7 @@ def toggle_task(task_id):
             remove_task_from_scheduler(task)
         return jsonify({'success': True, 'enabled': task.enabled})
     return jsonify({'success': False, 'error': '任务未找到'}), 404
+
 
 @app.route('/test_cron', methods=['POST'])
 def test_cron_expression():
@@ -391,8 +414,6 @@ def test_cron_expression():
         return jsonify({'valid': False, 'error': str(e)})
 
 
-
-
 def cron_parser(cron_expression):
     fields = cron_expression.split()
     if len(fields) != 5:
@@ -404,6 +425,7 @@ def cron_parser(cron_expression):
         'month': fields[3],
         'day_of_week': fields[4]
     }
+
 
 @app.route('/config/<config_id>/copy', methods=['POST'])
 def copy_config(config_id):
@@ -427,12 +449,14 @@ def copy_config(config_id):
     logger.info(f"配置ID {config_id} 复制到新配置，ID: {new_config.id}")
     return jsonify({'success': True, 'new_config_id': new_config.id})
 
+
 def remove_task_from_scheduler(task):
     for config in task.configs:
         job_id = f'task_{task.id}_config_{config.id}'
         if scheduler.get_job(job_id):
             scheduler.remove_job(job_id)
             logger.info(f"任务 {task.id} 的作业 ID {job_id} 已从调度器中移除")
+
 
 @app.route('/logs/<config_id>', methods=['GET'])
 def get_logs(config_id):
@@ -443,6 +467,7 @@ def get_logs(config_id):
         log_content = log_file.read()
     return log_content
 
+
 @app.route('/task_logs/<task_id>', methods=['GET'])
 def get_task_logs(task_id):
     log_filename = os.path.join('logs', f'{task_id}.logs')
@@ -451,6 +476,7 @@ def get_task_logs(task_id):
     with open(log_filename, 'r', encoding='utf-8', errors='ignore') as log_file:
         log_content = log_file.read()
     return log_content
+
 
 def load_tasks_from_db():
     with app.app_context():
@@ -477,6 +503,7 @@ def register():
         return redirect(url_for('index'))
     return render_template('register.html')
 
+
 # 登录用户
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -490,11 +517,13 @@ def login():
         flash('用户名或密码错误')
     return render_template('login.html')
 
+
 # 登出用户
 @app.route('/logout')
 def logout():
     session.pop('user_id', None)
     return redirect(url_for('login'))
+
 
 @app.route('/user_config', methods=['GET', 'POST'])
 def user_config():
@@ -516,7 +545,7 @@ def user_config():
             user_config.enable_subtitle_download = request.form['enable_subtitle_download'] == '1'
             user_config.enable_image_download = request.form['enable_image_download'] == '1'
             user_config.enable_refresh = request.form['enable_refresh'] == '1'
-            
+
             db.session.commit()
             flash('配置已更新')
             logger.info("配置更新成功")
@@ -526,6 +555,7 @@ def user_config():
             flash('更新失败: ' + str(e))
         return redirect(url_for('user_config'))
     return render_template('user_config.html', user_config=user_config)
+
 
 if __name__ == '__main__':
     with app.app_context():
