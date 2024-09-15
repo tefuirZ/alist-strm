@@ -1,0 +1,14 @@
+{
+    "stable": {
+        "version": "6.1.0",
+        "release_date": "2024-09-15",
+        "download_url": "https://your-server.com/downloads/stable-v6.1.0.zip",
+        "changelog": "修复了部分bug，优化了性能。"
+    },
+    "beta": {
+        "version": "6.1.0-beta",
+        "release_date": "2024-09-10",
+        "download_url": "https://your-server.com/downloads/beta-v6.1.0.zip",
+        "changelog": "新增功能：strm批量生成。"
+    }
+}
