@@ -1,0 +1,172 @@
+{% extends 'index.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>其他</h1>
+    <div class="card">
+        <div class="card-header">
+            脚本功能
+        </div>
+        <div class="card-body">
+            <p>此脚本用于批量替换指定目录及其子目录下的所有 .strm 文件中的域名。</p>
+            <!-- 按钮组 -->
+            <button type="button" class="btn btn-primary me-2" data-bs-toggle="modal" data-bs-target="#editModal">编辑</button>
+            <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#runModal">运行</button>
+            <button type="button" class="btn btn-info" data-bs-toggle="modal" data-bs-target="#logModal">查看日志</button>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑模态框 -->
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('other') }}" onsubmit="setTimeout(function(){ location.reload(); }, 100);">
+        <div class="modal-header">
+          <h5 class="modal-title" id="editModalLabel">编辑脚本参数</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="action" value="edit">
+          <div class="mb-3">
+            <label for="target_directory" class="form-label">目标目录</label>
+            <input type="text" class="form-control" id="target_directory" name="target_directory" value="{{ script_params.get('target_directory', '') }}" required>
+          </div>
+          <div class="mb-3">
+            <label for="old_domain" class="form-label">旧域名</label>
+            <input type="text" class="form-control" id="old_domain" name="old_domain" value="{{ script_params.get('old_domain', '') }}" required>
+          </div>
+          <div class="mb-3">
+            <label for="new_domain" class="form-label">新域名</label>
+            <input type="text" class="form-control" id="new_domain" name="new_domain" value="{{ script_params.get('new_domain', '') }}" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">保存</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 运行模态框 -->
+<div class="modal fade" id="runModal" tabindex="-1" aria-labelledby="runModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('other') }}" onsubmit="setTimeout(function(){ location.reload(); }, 100);">
+        <div class="modal-header">
+          <h5 class="modal-title" id="runModalLabel">确认运行脚本</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <div class="modal-body">
+          <p>确定要运行脚本吗？</p>
+          <p>目标目录：{{ script_params.get('target_directory', '未设置') }}</p>
+          <p>旧域名：{{ script_params.get('old_domain', '未设置') }}</p>
+          <p>新域名：{{ script_params.get('new_domain', '未设置') }}</p>
+          <!-- 隐藏字段 -->
+          <input type="hidden" name="action" value="run">
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-success">运行</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<!-- 查看日志模态框 -->
+<div class="modal fade" id="logModal" tabindex="-1" aria-labelledby="logModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">日志</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+      </div>
+      <div class="modal-body">
+        <!-- 一键滑到底按钮 -->
+        <div class="d-flex justify-content-end mb-2">
+          <button type="button" class="btn btn-sm btn-secondary" onclick="scrollToBottom()">一键滑到底</button>
+        </div>
+        <!-- 日志内容区域 -->
+        <div style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px;">
+          <pre id="logContent">{{ log_content }}</pre>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // 显示闪现消息的函数
+  function showToast(message, type) {
+    var toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) {
+      toastContainer = document.createElement('div');
+      toastContainer.id = 'toastContainer';
+      toastContainer.style.position = 'fixed';
+      toastContainer.style.top = '20px';
+      toastContainer.style.right = '20px';
+      toastContainer.style.zIndex = '1051';  // 确保在模态框之上
+      document.body.appendChild(toastContainer);
+    }
+
+    var toast = document.createElement('div');
+    toast.className = 'toast align-items-center text-bg-' + (type === 'success' ? 'success' : 'danger') + ' border-0 show';
+    toast.role = 'alert';
+    toast.ariaLive = 'assertive';
+    toast.ariaAtomic = 'true';
+    toast.innerHTML = `
+      <div class="d-flex">
+        <div class="toast-body">
+          ${message}
+        </div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="关闭"></button>
+      </div>
+    `;
+    toastContainer.appendChild(toast);
+
+    // 自动移除 toast
+    setTimeout(function () {
+      toastContainer.removeChild(toast);
+    }, 5000);
+  }
+
+  // 页面加载完成后，检查是否有闪现消息
+  document.addEventListener('DOMContentLoaded', function () {
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          showToast({{ message|tojson }}, '{{ category }}');
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+  });
+
+  // 滚动到日志内容的底部
+  function scrollToBottom() {
+    var logContentElement = document.getElementById('logContent');
+    logContentElement.parentElement.scrollTop = logContentElement.parentElement.scrollHeight;
+  }
+
+  // 模态框关闭时刷新页面
+  document.addEventListener('DOMContentLoaded', function () {
+    var modals = ['editModal', 'runModal', 'logModal'];
+    modals.forEach(function(modalId) {
+      var modalElement = document.getElementById(modalId);
+      if (modalElement) {
+        modalElement.addEventListener('hidden.bs.modal', function () {
+          location.reload();  // 刷新页面
+        });
+      }
+    });
+  });
+</script>
+{% endblock %}

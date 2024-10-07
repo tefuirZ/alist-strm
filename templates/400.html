@@ -1,0 +1,20 @@
+{% extends 'index.html' %}
+
+{% block content %}
+<div class="container">
+    <div class="text-center mt-5">
+        <h1 class="display-1 text-warning">400</h1>
+        <h2 class="mt-4">请求错误</h2>
+        <p class="lead">抱歉，您的请求有误，无法处理。</p>
+
+        <!-- 返回按钮部分 -->
+        <div class="mt-4">
+            <a href="{{ url_for('index') }}" class="btn btn-primary">返回首页</a>
+            <!-- 如果 request.referrer 存在，显示返回上级按钮 -->
+            {% if request.referrer %}
+            <a href="{{ request.referrer }}" class="btn btn-secondary">返回上级</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

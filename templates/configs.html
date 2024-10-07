@@ -1,0 +1,72 @@
+{% extends 'index.html' %}
+{% block content %}
+<div class="container">
+    <h1 class="mt-4">配置文件列表</h1>
+    <a href="{{ url_for('new_config') }}" class="btn btn-primary my-3">添加新配置</a>
+
+    {% if configs %}
+    <form method="POST" action="{{ url_for('run_selected_configs') }}" id="config-form">
+
+        <ul class="list-group">
+            <!-- 全选按钮 -->
+            <li class="list-group-item">
+                <input type="checkbox" id="select-all" /> 全选
+            </li>
+
+            {% for config in configs %}
+            <li class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                    <!-- 配置项复选框 -->
+                    <div>
+                        <input type="checkbox" name="selected_configs" value="{{ config[0] }}">
+                        <strong>名称:</strong> {{ config[1] }}<br>
+                        <strong>URL:</strong> {{ config[2] }}<br>
+                        <strong>用户名:</strong> {{ config[3] }}<br>
+                        <strong>路径:</strong> {{ config[4] }}<br>
+                        <strong>目标目录:</strong> {{ config[5] }}
+                    </div>
+                    <div>
+                        <!-- 操作按钮 -->
+                        <a href="{{ url_for('copy_config', config_id=config[0]) }}" class="btn btn-sm btn-secondary">复制</a>
+                        <a href="{{ url_for('logs', config_id=config[0]) }}" class="btn btn-sm btn-info">查看日志</a>
+                        <a href="{{ url_for('edit_config', config_id=config[0]) }}" class="btn btn-sm btn-warning">编辑</a>
+                        <a href="{{ url_for('delete_config', config_id=config[0]) }}" class="btn btn-sm btn-danger" onclick="return confirm('确认删除此配置吗？')">删除</a>
+                    </div>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+
+        <!-- 底部操作按钮 -->
+        <div class="mt-3">
+            <button type="submit" class="btn btn-success" onclick="submitForm('run_selected')">运行选定配置</button>
+            <button type="button" class="btn btn-secondary" onclick="submitForm('copy_selected')">复制选定配置</button>
+            <button type="button" class="btn btn-danger" onclick="submitForm('delete_selected')" onclick="return confirm('确认删除选定配置吗？')">删除选定配置</button>
+        </div>
+
+        <!-- 隐藏输入，用于标识动作 -->
+        <input type="hidden" name="action" id="action" value="">
+    </form>
+
+    {% else %}
+    <p class="mt-4">没有找到任何配置文件。</p>
+    {% endif %}
+</div>
+
+<script>
+    // 全选/取消全选的 JavaScript
+    document.getElementById('select-all').addEventListener('change', function() {
+        let checkboxes = document.querySelectorAll('input[name="selected_configs"]');
+        for (let checkbox of checkboxes) {
+            checkbox.checked = this.checked;
+        }
+    });
+
+    // 表单提交时指定操作
+    function submitForm(action) {
+        document.getElementById('action').value = action;
+        document.getElementById('config-form').submit();
+    }
+</script>
+
+{% endblock %}

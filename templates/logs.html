@@ -1,0 +1,8 @@
+{% for config in configs %}
+    <li class="list-group-item d-flex justify-content-between align-items-center">
+        名称: {{ config[1] }} <br>
+        URL: {{ config[2] }}
+        <!-- 添加 config_id 参数到 'logs' URL -->
+        <a href="{{ url_for('logs', config_id=config[0]) }}" class="btn btn-sm btn-info">查看日志</a>
+    </li>
+{% endfor %}

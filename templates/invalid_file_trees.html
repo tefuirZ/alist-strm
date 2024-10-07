@@ -1,0 +1,84 @@
+{% extends 'index.html' %}
+
+{% block content %}
+<div class="container">
+    <h1>失效的 .strm 文件目录树</h1>
+
+    {% if invalid_file_trees %}
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>目录树名称</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for invalid_file_tree in invalid_file_trees %}
+            <tr>
+                <td>{{ invalid_file_tree['name'].replace('.json', '') }}</td>
+                <td>
+                    <button class="btn btn-info btn-sm" onclick="viewDirectory('{{ invalid_file_tree['name'] }}')">查看</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteDirectory('{{ invalid_file_tree['name'] }}')">删除</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p>尚未进行 STRM 有效性检验，无法提供失效目录树。</p>
+    {% endif %}
+</div>
+
+<!-- 模态框，用于显示目录树结构 -->
+<div class="modal fade" id="directoryModal" tabindex="-1" aria-labelledby="directoryModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg"> <!-- 保持宽度不变 -->
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">{{ selected_directory_name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+      </div>
+      <div class="modal-body" style="max-height: 300px; overflow-y: auto;"> <!-- 仅对内容部分进行高度限制 -->
+        <pre id="directoryContent"></pre>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+    function deleteDirectory(directoryName) {
+        if (confirm("确定要删除此目录及其下的所有 .strm 文件和空文件夹吗？")) {
+            fetch(`/delete_invalid_directory/${encodeURIComponent(directoryName)}`, {
+                method: 'POST',
+            }).then(response => {
+                if (response.ok) {
+                    alert("删除成功");
+                    location.reload();
+                } else {
+                    alert("删除失败");
+                }
+            });
+        }
+    }
+
+    function viewDirectory(directoryName) {
+        fetch(`/get_invalid_file_tree/${encodeURIComponent(directoryName)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.structure) {
+                // 将 JSON 格式化并显示在模态框中
+                const formattedJson = JSON.stringify(data.structure, null, 4);
+                document.getElementById('directoryContent').textContent = formattedJson;
+                // 显示模态框
+                var directoryModal = new bootstrap.Modal(document.getElementById('directoryModal'));
+                directoryModal.show();
+            } else {
+                alert("无法获取目录结构。");
+            }
+        });
+    }
+</script>
+{% endblock %}

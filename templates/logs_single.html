@@ -1,0 +1,39 @@
+{% extends 'index.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <h4 class="mb-3">日志内容 (配置 ID: {{ config_id }})</h4>
+
+    <!-- 返回配置文件按钮，右上角定位 -->
+    <a href="{{ url_for('configs') }}" class="btn btn-primary btn-sm" id="back-button" style="position: fixed; top: 10px; right: 10px;">
+        返回配置文件
+    </a>
+
+    <!-- 显示日志内容，字体缩小，限制高度并加滚动条 -->
+    <div id="log-content" style="font-size: 14px; background-color: #f8f9fa; padding: 15px; height: 400px; overflow-y: auto; border: 1px solid #ddd;">
+        {{ log_content | safe }}
+    </div>
+
+    <!-- 滑到底部按钮，右下角定位 -->
+    <button id="scroll-button" class="btn btn-secondary btn-sm" style="position: fixed; bottom: 10px; right: 10px;">
+        滑到底部
+    </button>
+
+    <!-- JavaScript 用于滑到底部和处理换行符 -->
+    <script>
+        // 使用 JavaScript 将日志内容中的换行符转换为 HTML 中的 <br>
+        const logContentElement = document.getElementById('log-content');
+        let logContent = logContentElement.innerText;
+        logContentElement.innerHTML = logContent.replace(/\n/g, '<br>');
+
+        // 滑到底部按钮点击事件
+        const scrollButton = document.getElementById('scroll-button');
+        scrollButton.addEventListener('click', function() {
+            logContentElement.scrollTo({
+                top: logContentElement.scrollHeight,
+                behavior: 'smooth' // 平滑滚动
+            });
+        });
+    </script>
+</div>
+{% endblock %}

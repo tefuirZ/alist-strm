@@ -1,0 +1,32 @@
+{% extends 'index.html' %}
+{% block content %}
+<div class="container">
+    <h1 class="mt-4">脚本设置</h1>
+    <form method="POST">
+
+        <div class="mb-3">
+            <label for="video_formats" class="form-label">视频格式（逗号分隔）</label>
+            <!-- 将列表转换为逗号分隔的字符串 -->
+            <input type="text" class="form-control" name="video_formats" value="{{ ','.join(script_config.video_formats) }}">
+        </div>
+        <div class="mb-3">
+            <label for="subtitle_formats" class="form-label">字幕格式（逗号分隔）</label>
+            <input type="text" class="form-control" name="subtitle_formats" value="{{ ','.join(script_config.subtitle_formats) }}">
+        </div>
+        <div class="mb-3">
+            <label for="image_formats" class="form-label">图片格式（逗号分隔）</label>
+            <input type="text" class="form-control" name="image_formats" value="{{ ','.join(script_config.image_formats) }}">
+        </div>
+        <div class="mb-3">
+            <label for="metadata_formats" class="form-label">元数据格式（逗号分隔）</label>
+            <input type="text" class="form-control" name="metadata_formats" value="{{ ','.join(script_config.metadata_formats) }}">
+        </div>
+        <div class="mb-3">
+            <label for="size_threshold" class="form-label">视频文件大小阈值 (MB)</label>
+            <input type="number" class="form-control" name="size_threshold" value="{{ script_config.size_threshold }}" required>
+        </div>
+
+        <button type="submit" class="btn btn-success">保存</button>
+    </form>
+</div>
+{% endblock %}

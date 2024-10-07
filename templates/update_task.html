@@ -1,0 +1,50 @@
+<form method="POST" action="{{ url_for('update_task', task_id=task.task_id) }}">
+    <div class="mb-3">
+        <label for="task_name" class="form-label">任务名称</label>
+        <input type="text" class="form-control" id="task_name" name="task_name" value="{{ task.task_name }}" required>
+    </div>
+
+    <div class="mb-3">
+        <label for="config_ids" class="form-label">选择配置文件 ID</label>
+        <select class="form-select" id="config_ids" name="config_ids" multiple required>
+            {% for config in configs %}
+                <!-- 确保已选中的配置文件被标记为 selected -->
+                <option value="{{ config[0] }}" {% if config[0] in task.config_ids %}selected{% endif %}>
+                    {{ config[1] }} (ID: {{ config[0] }})
+                </option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label for="interval_type" class="form-label">时间间隔类型</label>
+        <select class="form-select" id="interval_type" name="interval_type" required>
+            <option value="minutes" {% if task.interval_type == 'minutes' %}selected{% endif %}>分钟</option>
+            <option value="hours" {% if task.interval_type == 'hours' %}selected{% endif %}>小时</option>
+            <option value="days" {% if task.interval_type == 'days' %}selected{% endif %}>天</option>
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label for="interval_value" class="form-label">时间间隔值</label>
+        <input type="number" class="form-control" id="interval_value" name="interval_value" value="{{ task.interval_value }}" required>
+    </div>
+
+    <div class="mb-3">
+        <label for="task_mode" class="form-label">任务模式</label>
+        <select class="form-select" id="task_mode" name="task_mode" required>
+            <option value="strm_creation" {% if task.task_mode == 'strm_creation' %}selected{% endif %}>运行strm创建</option>
+            <option value="strm_validation" {% if task.task_mode == 'strm_validation' %}selected{% endif %}>strm文件有效性检测</option>
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label for="is_enabled" class="form-label">是否启用</label>
+        <select class="form-select" id="is_enabled" name="is_enabled" required>
+            <option value="1" {% if task.is_enabled == 1 %}selected{% endif %}>启用</option>
+            <option value="0" {% if task.is_enabled == 0 %}selected{% endif %}>禁用</option>
+        </select>
+    </div>
+
+    <button type="submit" class="btn btn-primary">保存修改</button>
+</form>

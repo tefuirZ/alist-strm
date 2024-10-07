@@ -1,0 +1,14 @@
+{% extends 'index.html' %}
+
+{% block content %}
+<div class="card">
+    <h1>欢迎使用alist-strm管理界面！</h1>
+    <p>在这里，您可以：</p>
+    <ul>
+        <li>管理 <a href="{{ url_for('configs') }}">配置文件</a></li>
+        <li>设置 <a href="{{ url_for('scheduled_tasks') }}">定时任务</a></li>
+        <li>查看 <a href="{{ url_for('invalid_file_trees') }}">失效的STRM文件</a></li>
+        <li>调整 <a href="{{ url_for('settings') }}">脚本设置</a></li>
+    </ul>
+</div>
+{% endblock %}

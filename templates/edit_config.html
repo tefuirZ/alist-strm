@@ -1,0 +1,52 @@
+{% extends 'index.html' %}
+{% block content %}
+<div class="container">
+    <h1 class="mt-4">编辑配置</h1>
+    <form method="POST">
+        <div class="mb-3">
+            <label for="config_name" class="form-label">配置名称</label>
+            <input type="text" class="form-control" name="config_name" value="{{ config[0] }}" placeholder="请输入配置文件的别名，如：我的 Alist 配置" required>
+        </div>
+        <div class="mb-3">
+            <label for="url" class="form-label">Alist 的 URL（例如：http://192.168.100.1:5244）</label>
+            <input type="text" class="form-control" name="url" value="{{ config[1] }}" placeholder="请输入 Alist 的 URL" required>
+        </div>
+        <div class="mb-3">
+            <label for="username" class="form-label">Alist 的用户名</label>
+            <input type="text" class="form-control" name="username" value="{{ config[2] }}" placeholder="请输入 Alist 的用户名" required>
+        </div>
+        <div class="mb-3">
+            <label for="password" class="form-label">Alist 的密码</label>
+            <input type="password" class="form-control" name="password" value="{{ config[3] }}" placeholder="请输入 Alist 的密码" required>
+        </div>
+        <div class="mb-3">
+            <label for="rootpath" class="form-label">你想要生成 .strm 的 Alist 根路径</label>
+            <input type="text" class="form-control" name="rootpath" value="{{ config[4] }}" placeholder="请输入 Alist 的根路径，例如：/movies" required>
+        </div>
+        <div class="mb-3">
+            <label for="target_directory" class="form-label">目标目录（通常是 Docker 容器内的映射路径）</label>
+            <input type="text" class="form-control" name="target_directory" value="{{ config[5] }}" placeholder="请输入目标目录的路径，例如：/data/strm_files" required>
+        </div>
+        <div class="mb-3">
+            <label for="download_interval_range" class="form-label">下载文件时间间隔</label>
+            <input type="text" class="form-control" name="download_interval_range" value="{{ config[8] }}" placeholder="例如：1-5 或 2-5" required>
+            <small class="form-text text-muted">填入时间间隔范围，例如 1-5 或自定义的 2-5 秒。</small>
+        </div>
+        <div class="mb-3">
+            <label for="download_enabled" class="form-label">启用下载功能</label>
+            <select class="form-control" name="download_enabled">
+                <option value="1" {% if config[6] == 1 %}selected{% endif %}>是</option>
+                <option value="0" {% if config[6] == 0 %}selected{% endif %}>否</option>
+            </select>
+        </div>
+        <div class="mb-3">
+            <label for="update_mode" class="form-label">更新模式</label>
+            <select class="form-control" name="update_mode">
+                <option value="incremental" {% if config[7] == 'incremental' %}selected{% endif %}>增量更新</option>
+                <option value="full" {% if config[7] == 'full' %}selected{% endif %}>全量更新</option>
+            </select>
+        </div>
+        <button type="submit" class="btn btn-primary">保存修改</button>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "index.html" %}
+
+{% block content %}
+    <h2>定时任务列表</h2>
+
+    <div class="mb-3">
+        <a href="{{ url_for('new_task') }}" class="btn btn-primary">添加新任务</a>
+        <button id="delete-selected" class="btn btn-danger">删除选中任务</button>
+    </div>
+
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th><input type="checkbox" id="select-all"></th>
+                <th>任务名称</th>
+                <th>时间间隔</th>
+                <th>任务模式</th>
+                <th>启用状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for task in tasks %}
+            <tr>
+                <td><input type="checkbox" class="task-checkbox" value="{{ task['task_id'] }}"></td>
+                <td>
+                    {{ task['task_name'] }}
+                    {% if task['config_id'] %}
+                        <span class="badge bg-secondary">Config ID: {{ task['config_id'] }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ task['interval_description'] }}</td>
+                <td>
+                    {% if task['task_mode'] == 'strm_creation' %}
+                        运行 STRM 创建
+                    {% elif task['task_mode'] == 'strm_validation_quick' %}
+                        STRM 文件有效性检测（快扫）
+                    {% elif task['task_mode'] == 'strm_validation_slow' %}
+                        STRM 文件有效性检测（慢扫）
+                    {% else %}
+                        未知模式
+                    {% endif %}
+                </td>
+                <td>{{ '启用' if task['is_enabled'] else '禁用' }}</td>
+                <td>
+                    <a href="{{ url_for('view_logs', task_id=task['task_id']) }}" class="btn btn-info btn-sm">查看日志</a>
+                    <a href="{{ url_for('update_task', task_id=task['task_id']) }}" class="btn btn-warning btn-sm">编辑</a>
+                    <form action="{{ url_for('delete_task', task_id=task['task_id']) }}" method="POST" style="display:inline;">
+                        <button type="submit" class="btn btn-danger btn-sm">删除</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- 添加 JavaScript 处理多选删除和全选功能 -->
+    <!-- （保持原有的 JavaScript 代码） -->
+{% endblock %}

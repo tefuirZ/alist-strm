@@ -1,0 +1,74 @@
+{% extends 'index.html' %}
+{% block content %}
+<div class="container">
+    <h1 class="mt-4">关于</h1>
+    <p>这是一个通过alist创建strm文件的小工具</p>
+    <p>版本: {{ g.local_version }}</p>
+    <p>作者: tefuir</p>
+
+    <h3 class="mt-4">加入我们</h3>
+    <p>你可以加入我们的QQ群或Telegram群组获取更多帮助和交流：</p>
+    <a href="https://qm.qq.com/q/lVibDf37I4" class="btn btn-info" target="_blank">加入QQ群</a>
+    <a href="https://t.me/+TzRI4Z9_4_thZmRl" class="btn btn-primary ml-2" target="_blank">加入Telegram群</a>
+
+    <h3 class="mt-4">检查更新</h3>
+    <form id="updateForm">
+        <div class="form-group">
+            <label for="source">选择更新源:</label>
+            <select name="source" id="source" class="form-control">
+                <option value="domestic">国内源</option>
+                <option value="github">GitHub源</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="channel">选择更新通道:</label>
+            <select name="channel" id="channel" class="form-control">
+                <option value="stable">正式版</option>
+                <option value="beta">测试版</option>
+            </select>
+        </div>
+
+        <button type="button" class="btn btn-primary mt-3" id="checkUpdateButton">检查更新</button>
+    </form>
+<script src="{{ url_for('static', filename='js/jquery-3.6.0.min.js') }}"></script>
+    <script>
+        // 处理检查更新按钮的点击事件
+        $('#checkUpdateButton').on('click', function() {
+            var source = $('#source').val();
+            var channel = $('#channel').val();
+
+            // 使用 AJAX 提交表单，避免页面刷新
+            $.ajax({
+                url: '/about',
+                type: 'POST',
+                data: {
+                    source: source,
+                    channel: channel
+                },
+                success: function(response) {
+                    // 根据响应显示结果
+                    if (response.new_version) {
+                        var update = confirm('发现新版本: ' + response.latest_version + '\n更新日志: ' + response.changelog + '\n是否要更新？更新可能导致页面失联1分钟左右。请耐心等待后端重启，如长时间失联请联系作者。');
+                        if (update) {
+                            // 如果用户确认，发送更新请求
+                            $.post('/update_version', {
+                                source: source,
+                                channel: channel
+                            }, function(update_response) {
+                                alert(update_response.message);
+                            });
+                        }
+                    } else if (response.error) {
+                        alert('错误: ' + response.error);
+                    } else {
+                        alert('已经是最新版本');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    alert('检查更新时出错: ' + error);
+                }
+            });
+        });
+    </script>
+{% endblock %}

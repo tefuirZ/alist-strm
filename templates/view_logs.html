@@ -1,0 +1,43 @@
+{% extends 'index.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <h4 class="mb-3">任务 {{ task_name }} 的日志内容</h4>
+
+    <!-- 返回任务列表按钮，右上角定位 -->
+    <a href="{{ url_for('scheduled_tasks') }}" class="btn btn-primary btn-sm" id="back-button" style="position: fixed; top: 10px; right: 10px;">
+        返回任务列表
+    </a>
+
+    <!-- 显示日志内容，使用 <pre> 标签保留格式，并倒序显示 -->
+    <pre id="log-content" style="font-size: 14px; background-color: #f8f9fa; padding: 15px; height: 400px; overflow-y: auto; border: 1px solid #ddd;">
+        {% if log_contents %}
+            {% for log in log_contents|reverse %}
+                <h6>{{ log.filename }}</h6>
+                {{ log.content.strip() | safe }}
+            {% endfor %}
+        {% else %}
+            <p>未找到对应的日志文件。</p>
+        {% endif %}
+    </pre>
+
+    <!-- 滑到底部按钮，右下角定位 -->
+    <button id="scroll-button" class="btn btn-secondary btn-sm" style="position: fixed; bottom: 10px; right: 10px;">
+        滑到底部
+    </button>
+
+    <!-- JavaScript 用于滑到底部 -->
+    <script>
+        // 滑到底部按钮点击事件
+        const logContentElement = document.getElementById('log-content');
+        const scrollButton = document.getElementById('scroll-button');
+
+        scrollButton.addEventListener('click', function() {
+            logContentElement.scrollTo({
+                top: logContentElement.scrollHeight,
+                behavior: 'smooth' // 平滑滚动
+            });
+        });
+    </script>
+</div>
+{% endblock %}
