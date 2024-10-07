@@ -1,514 +1,375 @@
+import random
+import sys
+import easywebdav
 import json
 import os
-import shutil
-import sqlite3
-import urllib
-from datetime import datetime
+from urllib.parse import unquote
 import requests
-import logging
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-import sys
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import concurrent.futures
-
-# 配置日志记录器，添加时间戳
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger(__name__)
-
-# 获取配置路径，默认值为 /config
-config_path = os.getenv('CONFIG_PATH', '/config')
-
-# 确保数据库路径存在
-db_dir = Path(config_path)
-db_dir.mkdir(parents=True, exist_ok=True)
-
-# 数据库连接
-db_path = db_dir / 'config.db'
-db_path_str = str(db_path)  # 将 Path 对象转换为字符串
-logger.debug(f"数据库路径: {db_path_str}")  # 添加调试信息
-
-conn = sqlite3.connect(db_path_str)
-cursor = conn.cursor()
-# 创建配置表
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS config (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    root_path TEXT NOT NULL,
-    site_url TEXT NOT NULL,
-    target_directory TEXT NOT NULL,
-    ignored_directories TEXT,
-    token TEXT NOT NULL,
-    update_existing INTEGER NOT NULL
-)
-''')
-conn.commit()
-
-# 创建用户配置表
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS user_config (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    video_formats TEXT,
-    subtitle_formats TEXT,
-    image_formats TEXT,
-    download_threads INTEGER,
-    enable_metadata_download INTEGER,
-    enable_invalid_link_check INTEGER,
-    enable_nfo_download INTEGER,
-    enable_subtitle_download INTEGER,
-    enable_image_download INTEGER,
-    enable_refresh INTEGER  -- 添加此行
-)
-''')
-conn.commit()
-
-# 检查并插入默认用户配置
-cursor.execute('SELECT COUNT(*) FROM user_config')
-user_count = cursor.fetchone()[0]
-if user_count == 0:
-    cursor.execute('''
-    INSERT INTO user_config (video_formats, subtitle_formats, image_formats, download_threads, enable_metadata_download, enable_invalid_link_check, enable_nfo_download, enable_subtitle_download, enable_image_download, enable_refresh)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)  -- 添加 enable_refresh 的值
-    ''', (
-        '.mp4,.mkv,.avi,.mov,.flv,.wmv,.ts,.m2ts',  # 默认视频格式
-        '.srt,.ass,.ssa,.vtt',  # 默认字幕格式
-        '.jpg,.jpeg,.png,.bmp,.gif,.tiff,.webp',  # 默认图片格式
-        5,  # 默认下载线程数
-        1,  # 默认开启元数据下载
-        1,  # 默认开启失效文件对比
-        1,  # 默认开启nfo文件下载
-        1,  # 默认开启字幕下载
-        1,  # 默认开启图片下载
-        1  # 默认开启刷新
-    ))
-    conn.commit()
-
-# 确保插入默认配置后关闭数据库连接
-conn.close()
-
-total_valid_count = 0
-total_invalid_count = 0
-total_created_count = 0
-
-# 重新打开数据库连接
-conn = sqlite3.connect(db_path_str)
-cursor = conn.cursor()
+import time
+from queue import Queue
+from db_handler import DBHandler
+from logger import setup_logger
 
 
-# 从数据库获取用户配置
-def get_user_config():
-    cursor.execute('SELECT * FROM user_config WHERE id = 1')
-    user_config = cursor.fetchone()
-    if user_config and len(user_config) == 11:  # 更新长度检查
-        logger.debug(f"用户配置: {user_config}")  # 增加调试信息
-        return {
-            'video_formats': user_config[1].split(','),
-            'subtitle_formats': user_config[2].split(','),
-            'image_formats': user_config[3].split(','),
-            'download_threads': user_config[4],
-            'enable_metadata_download': bool(user_config[5]),
-            'enable_invalid_link_check': bool(user_config[6]),
-            'enable_nfo_download': bool(user_config[7]),
-            'enable_subtitle_download': bool(user_config[8]),
-            'enable_image_download': bool(user_config[9]),
-            'enable_refresh': bool(user_config[10]),  # 添加此行
-        }
-    else:
-        logger.error("用户配置不完整或未找到用户配置")
-        sys.exit(1)
 
+# 初始化全局计数器
+strm_file_counter = 0  # 总的 strm 文件数量
+video_file_counter = 0  # 总的视频文件数量
+download_file_counter = 0  # 已下载的文件数量
+total_download_file_counter = 0  # 总共需要下载的文件数量
+directory_strm_file_counter = {}  # 每个子目录下创建的 strm 文件数量
+existing_strm_file_counter = 0  # 已存在的 .strm 文件数量
+download_queue = Queue()  # 下载队列
+found_video_files = set()
 
-user_config = get_user_config()
-
-
-def validate_config_item(name, value):
-    if value.endswith('/'):
-        raise ValueError(f"{name} 配置项不能以 '/' 结尾: {value}")
-
-
-def validate_config(root_path, site_url, target_directory, ignored_directories):
-    validate_config_item("root_path", root_path)
-    validate_config_item("site_url", site_url)
-    validate_config_item("target_directory", target_directory)
-    for directory in ignored_directories:
-        validate_config_item("ignored_directories", directory)
-
-
-def requests_retry_session(
-        retries=3,
-        backoff_factor=0.3,
-        status_forcelist=(500, 502, 504),
-        session=None,
-):
-    session = session or requests.Session()
-    retry = Retry(
-        total=retries,
-        read=retries,
-        connect=retries,
-        backoff_factor=backoff_factor,
-        status_forcelist=status_forcelist,
+# 连接WebDAV服务器
+def connect_webdav(config):
+    return easywebdav.connect(
+        host=config['host'],
+        port=config['port'],
+        username=config['username'],
+        password=config['password'],
+        protocol=config['protocol']
     )
-    adapter = HTTPAdapter(max_retries=retry)
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-    return session
+    pass
 
 
-def list_directory(path, api_base_url, token, user_agent):
-    try:
-        url_list = api_base_url + "/fs/list"
-        payload_list = {
-            "path": path,
-            "password": "",
-            "page": 1,
-            "per_page": 0,
-            "refresh": bool(user_config['enable_refresh'])  # 动态设置 refresh 值为布尔值
-        }
-        headers_list = {
-            'Authorization': token,
-            'User-Agent': user_agent,
-            'Content-Type': 'application/json'
-        }
-        response_list = requests_retry_session().post(url_list, headers=headers_list, json=payload_list)
-        response_list.raise_for_status()  # 确保请求成功
+def load_cached_tree(config_id):
+    # 确保 cache 目录存在
+    cache_dir = 'cache'
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)  # 自动创建 cache 目录
 
-        response_data = response_list.json()
+    # 设置缓存文件路径
+    cache_file = os.path.join(cache_dir, f'webdav_directory_cache_{config_id}.json')
 
-        # 检查返回的JSON内容
-        if response_data.get('code') == 401:
-            raise Exception("无效的token")
-
-        return response_data
-
-    except requests.RequestException as e:
-        logger.error(f"请求错误: {e}")
-        raise
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON解析错误: {e}")
-        logger.error(f"响应内容: {response_list.text}")
-        raise
-
-
-def traverse_directory(path, json_structure, api_base_url, token, user_agent, ignored_directories):
-    try:
-        directory_info = list_directory(path, api_base_url, token, user_agent)
-        logger.info(f"遍历目录: {path}")  # 添加日志记录
-
-        if directory_info.get('data') and directory_info['data'].get('content'):
-            with concurrent.futures.ThreadPoolExecutor(max_workers=user_config['download_threads']) as executor:
-                futures = []
-                for item in directory_info['data'].get('content'):
-                    if item['name'] in ignored_directories:
-                        continue
-
-                    if item['is_dir']:
-                        new_path = os.path.join(path, item['name'])
-                        new_json_object = {}
-                        json_structure[item['name']] = new_json_object
-                        futures.append(
-                            executor.submit(traverse_directory, new_path, new_json_object, api_base_url, token,
-                                            user_agent, ignored_directories))
-                    else:
-                        json_structure[item['name']] = {
-                            'type': 'file',
-                            'size': item['size'],
-                            'modified': item['modified'],
-                            'sign': item.get('sign')
-                        }
-
-                # 等待所有任务完成
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.error(f"遍历目录时出错: {e}")
-
-    except Exception as e:
-        raise  # 确保异常被抛出以终止脚本
-
-
-def is_video_file(filename):
-    return any(filename.lower().endswith(ext) for ext in user_config['video_formats'])
-
-
-def is_subtitle_file(filename):
-    if user_config['enable_subtitle_download']:
-        return any(filename.lower().endswith(ext) for ext in user_config['subtitle_formats'])
-    return False
-
-
-def is_metadata_file(filename):
-    metadata_extensions = []
-    if user_config['enable_nfo_download']:
-        metadata_extensions.append('.nfo')
-    if user_config['enable_metadata_download']:
-        metadata_extensions.append('.xml')
-    return any(filename.lower().endswith(ext) for ext in metadata_extensions)
-
-
-def is_image_file(filename):
-    if user_config['enable_image_download']:
-        return any(filename.lower().endswith(ext) for ext in user_config['image_formats'])
-    return False
-
-
-def create_strm_files(json_structure, target_directory, base_url, update_existing, current_path=''):
-    global total_created_count
-    created_count = 0
-
-    full_path = Path(target_directory) / current_path
-
-    for name, item in json_structure.items():
-        if isinstance(item, dict) and item.get('type') == 'file' and is_video_file(name):
-            try:
-                strm_filename = name.rsplit('.', 1)[0] + '.strm'
-                strm_path = full_path / strm_filename
-
-                if not strm_path.exists():
-                    if not full_path.exists():
-                        full_path.mkdir(parents=True, exist_ok=True)
-                    sign = item.get('sign') if update_existing else None  # 根据 update_existing 决定是否使用签名
-                    create_strm_file(strm_path, base_url, name, current_path, json_structure, sign)
-                    created_count += 1
-                    total_created_count += 1
-            except Exception as e:
-                logger.error(f"创建 .strm 文件时出错: {e}")
-                continue
-
-        elif isinstance(item, dict) and item.get('type') != 'file':
-            try:
-                new_directory = full_path / name
-                if not new_directory.exists():
-                    new_directory.mkdir(parents=True, exist_ok=True)
-                create_strm_files(item, target_directory, base_url, update_existing,
-                                  (Path(current_path) / name).as_posix())
-            except Exception as e:
-                logger.error(f"处理子目录时出错: {e}")
-                continue
-
-    if created_count > 0:
-        logger.info(f"创建了 {created_count} 个 .strm 文件在目录 {current_path}")
-
-    if user_config['enable_metadata_download']:
+    # 加载缓存文件
+    if os.path.exists(cache_file):
         try:
-            if not full_path.exists():
-                full_path.mkdir(parents=True, exist_ok=True)
-            download_image_files(json_structure, base_url, current_path, full_path)
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
         except Exception as e:
-            logger.error(f"下载图片文件时出错: {e}")
+            logger.info(f"加载缓存文件出错: {e}")
+    return None
+    pass
 
 
-def download_image_files(json_structure, base_url, current_path, full_path):
-    with ThreadPoolExecutor(max_workers=user_config['download_threads']) as executor:
-        futures = []
-        for name, item in json_structure.items():
-            if isinstance(item, dict) and item.get('type') == 'file' and is_image_file(name):
-                futures.append(executor.submit(download_file, base_url, current_path, name, full_path))
+def save_tree_to_cache(file_tree, config_id):
+    # 确保 cache 目录存在
+    cache_dir = 'cache'
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)  # 自动创建 cache 目录
 
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except Exception as e:
-                logger.error(f"下载图片文件时出错: {e}")
+    # 设置缓存文件路径
+    cache_file = os.path.join(cache_dir, f'webdav_directory_cache_{config_id}.json')
 
-
-def create_strm_file(strm_path, base_url, name, current_path, json_structure, sign=None):
+    # 保存缓存文件
     try:
-        encoded_file_path = urllib.parse.quote((Path(current_path) / name).as_posix(), safe='')
-        video_url = base_url + encoded_file_path
-
-        if sign:
-            video_url += "?sign=" + sign
-
-        with open(strm_path, 'w', encoding='utf-8') as strm_file:
-            strm_file.write(video_url)
-
-        if (user_config['enable_nfo_download'] or user_config['enable_subtitle_download'] or user_config[
-            'enable_image_download']) and has_related_files(json_structure, name):
-            download_related_files(json_structure, name, base_url, strm_path.parent, current_path)
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(file_tree, f, ensure_ascii=False, indent=4)
+        logger.info(f"目录树缓存文件 '{cache_file}' 保存成功。")
     except Exception as e:
-        logger.error(f"创建 .strm 文件时出错: {e}")
+        logger.info(f"保存目录树缓存文件出错: {e}")
+    pass
+
+# 比较两个目录树，如果相同返回 True，否则返回 False
+def compare_directory_trees(cached_tree, current_tree):
+    if len(cached_tree) != len(current_tree):
+        return False
+    for cached_file, current_file in zip(cached_tree, current_tree):
+        if cached_file['name'] != current_file['name'] or \
+           cached_file['size'] != current_file['size'] or \
+           cached_file['modified'] != current_file['modified']:
+            return False
+    return True
+    pass
 
 
-def has_related_files(json_structure, video_name):
-    base_name = video_name.rsplit('.', 1)[0]
-    for name in json_structure:
-        if name.startswith(base_name) and (is_subtitle_file(name) or is_metadata_file(name) or is_image_file(name)):
-            return True
-    return False
 
 
-def download_related_files(json_structure, video_name, base_url, full_path, current_path):
-    base_name = video_name.rsplit('.', 1)[0]
-    with ThreadPoolExecutor(max_workers=user_config['download_threads']) as executor:
-        futures = []
-        for name, item in json_structure.items():
-            if (is_subtitle_file(name) or is_metadata_file(name) or is_image_file(name)) and name.startswith(base_name):
-                futures.append(executor.submit(download_file, base_url, current_path, name, full_path))
 
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except Exception as e:
-                logger.error(f"下载相关文件时出错: {e}")
+def list_files_recursive_with_cache(webdav, directory, config, script_config, size_threshold, visited=None):
+    global video_file_counter, strm_file_counter, directory_strm_file_counter, total_download_file_counter
+    decoded_directory = unquote(directory)
 
+    if visited is None:
+        visited = set()
 
-def download_file(base_url, current_path, name, full_path):
-    file_path = full_path / name
+    # 检查是否已经访问过该目录，避免循环递归
+    if directory in visited:
+        return []
 
-    if file_path.exists():
-        return
-
-    encoded_file_path = urllib.parse.quote((Path(current_path) / name).as_posix(), safe='')
-    file_url = base_url + encoded_file_path
+    visited.add(directory)
 
     try:
-        response = requests_retry_session().get(file_url, stream=True)
-        response.raise_for_status()
+        logger.info(f"尝试遍历目录: {decoded_directory}")
+        files = webdav.ls(directory)  # 列出 WebDAV 中的文件
+        file_tree = []
 
-        with open(file_path, 'wb') as file:
-            for chunk in response.iter_content(chunk_size=8192):
-                file.write(chunk)
-    except Exception as e:
-        logger.error(f"下载文件时出错: {e}")
+        # 解码URL编码的目录名称，确保中文正常显示
 
+        # 处理本地目录路径，去掉 WebDAV 上的根目录部分
+        local_relative_path = decoded_directory.replace(config['rootpath'], '').lstrip('/')
+        local_directory = os.path.join(config['target_directory'], local_relative_path)
+        os.makedirs(local_directory, exist_ok=True)  # 确保本地目录存在
 
-def check_path_exists(path):
-    return Path(path).exists()
+        # 初始化该目录的 strm 文件计数器
+        directory_strm_file_counter[decoded_directory] = 0
 
+        for f in files:
+            decoded_file_name = unquote(f.name)
+            decoded_name = unquote(f.name)  # 解码文件或文件夹名称
+            is_directory = f.name.endswith('/')
+            file_info = {
+                'name': decoded_name,  # 使用解码后的名称
+                'size': f.size,
+                'modified': f.mtime,
+                'is_directory': is_directory,
+                'children': [] if is_directory else None  # 如果是文件夹，初始化children为空列表
+            }
 
-def check_and_delete_invalid_links(json_structure, target_directory, current_path=''):
-    global total_valid_count, total_invalid_count
-
-    video_files_set = set()
-
-    def collect_video_files(json_structure, current_path):
-        for name, item in json_structure.items():
-            if isinstance(item, dict) and item.get('type') == 'file' and is_video_file(name):
-                video_files_set.add((Path(current_path) / name).stem)
-            elif isinstance(item, dict) and item.get('type') != 'file':
-                collect_video_files(item, (Path(current_path) / name).as_posix())
-
-    collect_video_files(json_structure, current_path)
-
-    for root, dirs, files in os.walk(Path(target_directory) / current_path, topdown=False):
-        for file in files:
-            if file.endswith('.strm'):
-                strm_path = Path(root) / file
-                video_filename = strm_path.stem
-
-                if video_filename not in video_files_set:
-                    strm_path.unlink()
-                    total_invalid_count += 1
-
-        for dir in dirs:
-            dir_path = Path(root) / dir
-            if not any(f.suffix == '.strm' for f in dir_path.rglob('*')):
-                try:
-                    shutil.rmtree(dir_path)
-                except Exception as e:
-                    logger.error(f"删除目录 {dir_path} 时出错: {e}")
-
-    for root, dirs, files in os.walk(Path(target_directory) / current_path, topdown=False):
-        for file in files:
-            if file.endswith('.strm'):
-                total_valid_count += 1
-
-
-def delete_directory_contents(directory):
-    if not check_path_exists(directory):
-        logger.error(f"目录不存在: {directory}")
-        return
-
-    try:
-        for item in Path(directory).iterdir():
-            if item.is_dir():
-                delete_directory_contents(item)
-                item.rmdir()
+            # 如果是文件夹，递归获取其子文件
+            if is_directory:
+                file_info['children'] = list_files_recursive_with_cache(webdav, f.name, config, script_config, size_threshold, visited)
             else:
-                item.unlink()
+                file_extension = os.path.splitext(f.name)[1].lower().lstrip('.')
+
+                # 根据不同格式执行不同操作
+                if file_extension in script_config['video_formats']:
+
+                    logger.info(f"找到视频文件: {decoded_file_name}")
+                    video_file_counter += 1  # 增加视频文件计数
+                    create_strm_file(f.name, f.size, config, script_config['video_formats'], local_directory,
+                                     decoded_directory, size_threshold)
+                    # 全量更新时，直接创建 strm 文件，传入文件大小和阈值
+
+
+
+                elif (
+                        file_extension in script_config['subtitle_formats'] or \
+                     file_extension in script_config['image_formats'] or \
+                     file_extension in script_config['metadata_formats']):
+                    logger.info(f"找到下载文件: {decoded_file_name}")
+
+                    total_download_file_counter += 1  # 记录需要下载的文件总数
+                    # 将下载任务加入队列（无需创建线程）
+                    download_queue.put((webdav, f.name, local_directory, f.size, config))
+
+            file_tree.append(file_info)
+
+        return file_tree
     except Exception as e:
-        logger.error(f"删除目录内容时出错: {e}")
+        logger.info(f"Error listing files: {e}")
+        return []
 
 
-def process_config(config_id):
+
+
+
+def download_files_with_interval(min_interval, max_interval):
+    global download_file_counter, total_download_file_counter
+    while not download_queue.empty():
+        webdav, file_name, local_path, expected_size, config = download_queue.get()
+        try:
+            download_file(webdav, file_name, local_path, expected_size, config)
+        finally:
+            download_file_counter += 1
+            logger.info(f"文件下载进度: {download_file_counter}/{total_download_file_counter}")
+            download_queue.task_done()
+
+        # 使用从数据库读取的随机下载间隔范围
+        interval = random.randint(min_interval, max_interval)
+        time.sleep(interval)
+
+
+
+def create_strm_file(file_name, file_size, config, video_formats, local_directory, directory, size_threshold):
+    global strm_file_counter, directory_strm_file_counter, existing_strm_file_counter
+    size_threshold_bytes = size_threshold * (1024 * 1024)
+
+    # 获取文件扩展名并判断是否生成strm文件
+    file_extension = os.path.splitext(file_name)[1].lower().lstrip('.')
+    if file_extension not in video_formats:
+        decoded_name = unquote(file_name)
+        logger.info(f"跳过文件: {decoded_name}（不是视频格式）")
+        return
+
+    # 如果视频文件大小小于用户设定的阈值，则跳过创建
+    if file_size < size_threshold_bytes:
+        decoded_name = unquote(file_name)
+        logger.info(f"跳过生成 .strm 文件: {decoded_name}（文件大小小于 {size_threshold } MB）")
+        return
+
+    clean_file_name = file_name.replace('/dav', '')  # 去掉 /dav/ 前缀
+    # 根据 protocol 参数生成相应的链接，http 或 https
+    http_link = f"{config['protocol']}://{config['host']}:{config['port']}/d{clean_file_name}"
+
+    decoded_file_name = unquote(file_name).replace('/dav/', '')  # 解码为中文
+    strm_file_name = os.path.splitext(os.path.basename(decoded_file_name))[0] + ".strm"
+    strm_file_path = os.path.join(local_directory, strm_file_name)
+
+    # 检查本地是否已存在 .strm 文件
+    if os.path.exists(strm_file_path):
+        logger.info(f"跳过生成 .strm 文件: {strm_file_path}（本地已存在）")
+        existing_strm_file_counter += 1  # 计数已存在的 .strm 文件
+
+        return
+
     try:
-        cursor.execute('SELECT * FROM config WHERE id=?', (config_id,))
-        config = cursor.fetchone()
+        logger.info(f"创建 .strm 文件: {strm_file_path}")
+        with open(strm_file_path, 'w', encoding='utf-8') as strm_file:
+            strm_file.write(http_link)  # 写入链接
+            decoded_name = unquote(strm_file_path)
+        logger.info(f".strm 文件已创建: {decoded_name}")
 
-        if config is None:
-            logger.error(f"未找到ID为{config_id}的配置")
+        # 更新计数器
+        strm_file_counter += 1
+        directory_strm_file_counter[directory] += 1  # 更新子目录下的 strm 文件数量
+    except Exception as e:
+        logger.info(f"创建 .strm 文件时出错: {file_name}，错误: {e}")
+    pass
+
+
+# 下载文件并检查本地是否已存在
+def download_file(webdav, file_name, local_path, expected_size, config):
+    global download_file_counter, total_download_file_counter
+
+
+    # 检查是否允许下载文件
+    if config.get('download_enabled', 1) == 0:
+        logger.info(f"下载功能已禁用，跳过下载文件: {file_name}")
+        return
+
+    try:
+        # 本地文件路径，解码为中文文件名
+        local_file_path = os.path.join(local_path, os.path.basename(unquote(file_name)))
+
+        # 如果文件已存在，跳过下载
+        if os.path.exists(local_file_path):
+            logger.info(f"跳过文件下载: {local_file_path}（本地已存在）")
             return
 
-        id, name, root_path, site_url, target_directory, ignored_directories_str, token, update_existing = config
-        ignored_directories = [d.strip() for d in ignored_directories_str.split(',') if d.strip()]
+        clean_file_name = file_name.replace('/dav', '')
+        # 根据协议动态生成下载链接
+        file_url = f"{config['protocol']}://{config['host']}:{config['port']}/d{clean_file_name}"
 
-        # 验证配置项
-        validate_config(root_path, site_url, target_directory, ignored_directories)
+        logger.info(f"正在下载文件: {file_url}")
+        response = requests.get(file_url, auth=(config['username'], config['password']), stream=True, allow_redirects=True)
 
-        logger.info(f"正在运行配置文件：{name}")
-        logger.info(f"目标目录路径: {target_directory}")
-        logger.info('记得去alist把设置中的签名关闭，否则链接无法访问')
-
-        json_structure = {}
-        base_url = site_url + '/d' + urllib.parse.quote(root_path) + '/'
-        api_base_url = site_url + '/api'
-        user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-
-        traverse_directory(root_path, json_structure, api_base_url, token, user_agent, ignored_directories)
-
-        # 修正部分，将 base_dir 替换为 db_dir
-        temp_file = db_dir / 'directory_tree.json'
-        with open(temp_file, 'w', encoding='utf-8') as f:
-            json.dump(json_structure, f, ensure_ascii=False, indent=4)
-        logger.info('正在创建alist目录树')
-
-        with open(temp_file, 'r', encoding='utf-8') as f:
-            json_structure = json.load(f)
-        logger.info('正在创建本地目录树')
-
-        if user_config['enable_invalid_link_check']:
-            check_and_delete_invalid_links(json_structure, target_directory)
-            logger.info('正在检测strm文件链接有效性')
-
-        create_strm_files(json_structure, target_directory, base_url, update_existing)
-
-        logger.info(f"配置 {name} 下的strm文件已经创建完成")
-    except ValueError as e:
-        logger.error(f"配置项错误: {e}")
-        sys.exit(1)
-    except sqlite3.Error as e:
-        logger.error(f"处理配置时出错: {e}")
-        sys.exit(1)
-
-
-def main():
-    logger.info('脚本运行中。。。。。。。')
-
-    if len(sys.argv) < 2:
-        logger.error("请提供配置ID作为命令行参数")
-        return
-
-    config_id = sys.argv[1]
-    try:
-        process_config(config_id)
-        logger.info(f'有效的 strm 文件总数量: {total_valid_count}')
-        logger.info(f'删除的 strm 文件总数量: {total_invalid_count}')
-        logger.info(f'本次运行创建的 strm 文件总数量: {total_created_count}')
-        logger.info('所有strm文件创建完成')
-    except Exception as e:
-        if "无效的token" in str(e):
-            logger.error("无效的token，脚本将终止运行")
+        if response.status_code == 200:
+            with open(local_file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            logger.info(f"文件下载成功: {local_file_path}")
         else:
-            logger.error(f"脚本运行过程中发生错误: {e}")
-        sys.exit(1)
+            logger.info(f"下载失败: {file_name}，状态码: {response.status_code}")
+
+        # 校验文件大小是否匹配
+        actual_size = os.path.getsize(local_file_path)
+        if actual_size == expected_size:
+            logger.info(f"文件已成功下载: {local_file_path}（大小: {actual_size} 字节）")
+            download_file_counter += 1
+            logger.info(f"文件下载进度: {download_file_counter}/{total_download_file_counter}")
+        else:
+            logger.info(f"文件大小不匹配: {local_file_path}。预期: {expected_size}，实际: {actual_size}")
+            os.remove(local_file_path)
+    except Exception as e:
+        logger.info(f"下载文件时出错: {file_name}，错误: {e}")
+    pass
+
+def process_with_cache(webdav, config, script_config, config_id, size_threshold):
+    global video_file_counter, strm_file_counter, download_file_counter, total_download_file_counter
+
+    cached_tree = load_cached_tree(config_id)
+
+    root_directory = config['rootpath']
+    current_tree = list_files_recursive_with_cache(webdav, root_directory, config, script_config, size_threshold)
+
+    if config.get('update_mode') == 'incremental':
+        logger.info("正在执行增量更新...")
+
+        if cached_tree and compare_directory_trees(cached_tree, current_tree):
+            logger.info("本地目录树与云端一致，跳过更新。")
+            if config.get('download_enabled', 1) == 0:
+                logger.info("下载功能已禁用，程序即将退出。")
+                sys.exit(0)
+        else:
+            logger.info("目录树发生变化，进行增量更新。")
+
+            save_tree_to_cache(current_tree, config_id)
+
+    elif config.get('update_mode') == 'full':
+        logger.info("正在执行全量更新...")
+
+        save_tree_to_cache(current_tree, config_id)  # 保存全量更新后的目录树到缓存
+    logger.info(f"总共创建了 {strm_file_counter} 个 .strm 文件")
+    logger.info(f"总共发现了 {video_file_counter} 个视频文件")
+    logger.info(f"总共需要下载 {total_download_file_counter} 个文件")
+
+    if config.get('download_enabled', 1) == 0:
+        logger.info("下载功能已禁用，跳过所有下载任务。程序即将退出。")
+        sys.exit(0)
+
+    # 传递下载间隔范围（最小值和最大值）
+    min_interval, max_interval = config['download_interval_range']
+    download_files_with_interval(min_interval, max_interval)
+
+    logger.info(f"总共下载了 {download_file_counter} 个文件")
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    db_handler = DBHandler()
+
+    config_id = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+    task_id = sys.argv[2] if len(sys.argv) > 2 else None  # 获取任务ID，如果存在
+
+    # 设置日志
+    if task_id:
+        logger, log_file = setup_logger('config_' + str(config_id), task_id=task_id)
+    else:
+        logger, log_file = setup_logger('config_' + str(config_id))
+
+    try:
+        # 初始化数据库并获取配置
+        db_handler.initialize_tables()
+        config = db_handler.get_webdav_config(config_id)
+
+        # 检查配置是否有效
+        if not config:
+            logger.error(f"无法获取配置ID {config_id} 的配置，程序终止。")
+            sys.exit(1)
+
+        # 输出配置信息到日志
+        logger.info(
+            f"正在使用配置ID: {config_id} 运行，目标地址: {config['protocol']}://{config['host']}:{config['port']}")
+
+        # 获取视频、图片等格式和大小阈值
+        script_config = db_handler.get_script_config()
+
+        # 检查脚本配置是否有效
+        if not script_config or 'video_formats' not in script_config or 'size_threshold' not in script_config:
+            logger.error(f"脚本配置出错，缺少必要的配置项，程序终止。")
+            sys.exit(1)
+
+        # 连接 WebDAV 服务器
+        try:
+            webdav = connect_webdav(config)
+        except Exception as e:
+            logger.error(f"连接 WebDAV 服务器时出错: {e}")
+            sys.exit(1)
+
+        # 使用缓存策略处理文件，并传递 size_threshold
+        try:
+            process_with_cache(webdav, config, script_config, config_id, script_config['size_threshold'])
+        except Exception as e:
+            logger.error(f"处理文件时发生错误: {e}")
+            sys.exit(1)
+
+        logger.info("文件处理完成！")
+
+    except Exception as e:
+        logger.error(f"运行过程中出现未捕获的异常: {e}")
+
+    finally:
+        db_handler.close()
+

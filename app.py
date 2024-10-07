@@ -1,567 +1,929 @@
-from datetime import datetime
-import random
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
-from flask_sqlalchemy import SQLAlchemy
-from flask_apscheduler import APScheduler
-from werkzeug.security import generate_password_hash, check_password_hash
-import subprocess
 import os
-import logging
-import threading
-from croniter import croniter
-from sqlalchemy import inspect, Column, Boolean, String, Integer
-from sqlalchemy.exc import OperationalError
+import sys
+import random
+import glob
+import json
+import subprocess
+import zipfile
+import requests
+from flask import Flask, render_template, request, redirect, url_for, flash, send_from_directory, session, g, abort, jsonify
+from functools import wraps
+from werkzeug.security import generate_password_hash, check_password_hash
+from db_handler import DBHandler
+from logger import setup_logger
+from task_scheduler import add_tasks_to_cron, update_tasks_in_cron, delete_tasks_from_cron, list_tasks_in_cron, convert_to_cron_time
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = 'www.tefuir08029.cn'  # 必须设置一个密钥用于 session 加密
-
-# 获取配置路径，默认值为 /config
-config_path = os.getenv('CONFIG_PATH', '/config')
-
-# 确保配置目录存在
-if not os.path.exists(config_path):
-    os.makedirs(config_path)
-
-# 设置SQLAlchemy数据库URI
-app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{os.path.join(config_path, "config.db")}'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SCHEDULER_API_ENABLED'] = True
-db = SQLAlchemy(app)
-scheduler = APScheduler()
-scheduler.init_app(app)
-scheduler.start()  # 启动调度器
+app.secret_key = 'www.tefuir0829.cn'
 
 
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(200), nullable=False)
+# 定义图片文件夹路径
+IMAGE_FOLDER = 'static/images'
 
 
-class Config(db.Model):
-    id = db.Column(db.String(6), primary_key=True, default=lambda: str(random.randint(100000, 999999)))
-    name = db.Column(db.String(100), nullable=False)
-    root_path = db.Column(db.String(200), nullable=False)
-    site_url = db.Column(db.String(200), nullable=False)
-    target_directory = db.Column(db.String(200), nullable=False)
-    ignored_directories = db.Column(db.String(200), nullable=True)
-    token = db.Column(db.String(200), nullable=False)
-    update_existing = db.Column(db.Boolean, default=False)
+db_handler = DBHandler()
+
+local_version = "6.0.2"
 
 
-task_config = db.Table('task_config',
-                       db.Column('task_id', db.String(6), db.ForeignKey('user_task.id'), primary_key=True),
-                       db.Column('config_id', db.String(6), db.ForeignKey('config.id'), primary_key=True)
-                       )
 
+logger, log_file = setup_logger('app')
 
-class UserConfig(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    video_formats = db.Column(db.String(200), nullable=False, default='.mp4,.mkv,.avi,.mov,.flv,.wmv,.ts,.m2ts')
-    subtitle_formats = db.Column(db.String(200), nullable=False, default='.srt,.ass,.ssa,.vtt')
-    image_formats = db.Column(db.String(200), nullable=False, default='.jpg,.jpeg,.png,.bmp,.gif,.tiff,.webp')
-    download_threads = db.Column(db.Integer, nullable=False, default=5)
-    enable_metadata_download = db.Column(db.Boolean, nullable=False, default=True)
-    enable_invalid_link_check = db.Column(db.Boolean, nullable=False, default=True)
-    enable_nfo_download = db.Column(db.Boolean, nullable=False, default=True)
-    enable_subtitle_download = db.Column(db.Boolean, nullable=False, default=True)
-    enable_image_download = db.Column(db.Boolean, nullable=False, default=True)
-    enable_refresh = db.Column(db.Boolean, nullable=False, default=True)
-
-
-class UserTask(db.Model):
-    id = db.Column(db.String(6), primary_key=True, default=lambda: str(random.randint(100000, 999999)))
-    cron_expression = db.Column(db.String(100), nullable=False)
-    enabled = db.Column(db.Boolean, default=False)
-    configs = db.relationship('Config', secondary=task_config, lazy='subquery',
-                              backref=db.backref('tasks', lazy=True))
-
-
-def add_missing_column(engine, table_name, column, default_value):
-    inspector = inspect(engine)
-    columns = [col['name'] for col in inspector.get_columns(table_name)]
-    if column.name not in columns:
-        with engine.connect() as conn:
-            try:
-                conn.execute(f'ALTER TABLE {table_name} ADD COLUMN {column.compile(dialect=engine.dialect)}')
-                conn.execute(f'UPDATE {table_name} SET {column.name} = {default_value}')
-            except OperationalError as e:
-                logger.error(f"添加列 {column.name} 时出错: {e}")
-
-
-def add_task_to_scheduler(task):
-    for config in task.configs:  # 遍历任务关联的所有配置
-        job_id = f'task_{task.id}_config_{config.id}'
-        if not scheduler.get_job(job_id):
-            try:
-                # 为每个任务添加日志处理程序
-                log_dir = 'logs'
-                if not os.path.exists(log_dir):
-                    os.makedirs(log_dir)
-                log_filename = os.path.join(log_dir, f'{task.id}.logs')
-
-                handler = logging.FileHandler(log_filename, encoding='utf-8')
-                handler.setLevel(logging.INFO)
-                formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-                handler.setFormatter(formatter)
-
-                apscheduler_logger = logging.getLogger('apscheduler')
-                apscheduler_logger.setLevel(logging.INFO)
-                apscheduler_logger.addHandler(handler)
-
-                scheduler.add_job(
-                    func=scheduled_task,
-                    args=(config.id, task.id),
-                    trigger='cron',
-                    id=job_id,
-                    **cron_parser(task.cron_expression)
-                )
-                logger.info(f"任务 {task.id} 的配置 {config.id} 已添加到调度器，cron 表达式: {task.cron_expression}")
-
-                # 移除处理程序
-                apscheduler_logger.removeHandler(handler)
-            except Exception as e:
-                logger.error(f"添加任务到调度器失败: {e}")
-        else:
-            logger.info(f"任务 {task.id} 的配置 {config.id} 已存在于调度器中，跳过添加。")
-
-
-def init_app(app):
-    with app.app_context():
-        engine = db.get_engine()
-        # 添加所有缺失的列
-        add_missing_column(engine, 'user_config', Column('enable_refresh', Boolean, nullable=False, server_default='1'),
-                           '1')
-        add_missing_column(engine, 'user_config',
-                           Column('enable_nfo_download', Boolean, nullable=False, server_default='1'), '1')
-        add_missing_column(engine, 'user_config',
-                           Column('enable_subtitle_download', Boolean, nullable=False, server_default='1'), '1')
-        add_missing_column(engine, 'user_config',
-                           Column('enable_image_download', Boolean, nullable=False, server_default='1'), '1')
-        add_missing_column(engine, 'user_config',
-                           Column('enable_metadata_download', Boolean, nullable=False, server_default='1'), '1')
-        add_missing_column(engine, 'user_config',
-                           Column('enable_invalid_link_check', Boolean, nullable=False, server_default='1'), '1')
-        db.create_all()
-
-
-def scheduled_task(config_id, task_id):
-    logger.info(f"定时任务触发，配置ID: {config_id}, 任务ID: {task_id}")
-    run_task_with_logging(config_id, task_id)
-
-
-def run_task_with_logging(config_id, task_id):
-    log_dir = 'logs'
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    log_filename = os.path.join(log_dir, f'{task_id}.logs')
-
-    # 设置日志处理程序
-    handler = logging.FileHandler(log_filename, encoding='utf-8')
-    handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(message)s')
-    handler.setFormatter(formatter)
-
-    # 添加日志处理程序到 apscheduler.logger
-    apscheduler_logger = logging.getLogger('apscheduler')
-    apscheduler_logger.setLevel(logging.INFO)
-    apscheduler_logger.addHandler(handler)
-
-    with open(log_filename, 'a', encoding='utf-8') as log_file:
-        log_file.write(f"定时任务启动，配置ID {config_id} 启动于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        log_file.flush()
-
-        process = subprocess.Popen(['python', 'main.py', config_id], stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, bufsize=1, universal_newlines=True, encoding='utf-8',
-                                   errors='ignore')
-
-        def read_output(pipe):
-            for line in iter(pipe.readline, ''):
-                if line:
-                    logger.info(line.strip())
-                    log_file.write(line)
-                    log_file.flush()
-            pipe.close()
-
-        stdout_thread = threading.Thread(target=read_output, args=(process.stdout,))
-        stderr_thread = threading.Thread(target=read_output, args=(process.stderr,))
-
-        stdout_thread.start()
-        stderr_thread.start()
-
-        stdout_thread.join()
-        stderr_thread.join()
-
-        process.wait()
-
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        result = f"{timestamp} - 定时任务：配置 {config_id} 运行结束 ，返回代码 {process.returncode}\n"
-        logger.info(result)
-        log_file.write(result)
-        log_file.flush()
-
-        # 获取下次运行时间
-        job_id = f'task_{task_id}_config_{config_id}'
-        job = scheduler.get_job(job_id)
-        if job:
-            next_run_time = job.next_run_time.strftime('%Y-%m-%d %H:%M:%S')
-            log_file.write(f"下次运行时间：{next_run_time}\n")
-            logger.info(f"下次运行时间：{next_run_time}")
-
-    # 移除处理程序
-    apscheduler_logger.removeHandler(handler)
-
-
-@app.before_first_request
-def before_first_request():
-    init_app(app)  # 在第一次请求之前初始化应用，确保缺失的字段被添加
-    if not UserConfig.query.first():
-        default_user_config = UserConfig()
-        db.session.add(default_user_config)
-        db.session.commit()
 
 
 @app.before_request
-def before_request():
-    if not User.query.first() and request.endpoint != 'register':
+def check_user_config():
+    # 跳过以下端点的检查
+    if request.endpoint in ['login', 'register', 'static', 'random_image']:
+        return
+
+    # 确保 user_config 表中有用户名和密码
+    username, password = db_handler.get_user_credentials()
+    if not username or not password:
+        # 重定向到注册页面
         return redirect(url_for('register'))
-    elif 'user_id' not in session and request.endpoint not in ['login', 'register', 'static']:
+
+    # 检查用户是否已登录
+    if 'logged_in' not in session:
         return redirect(url_for('login'))
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'logged_in' not in session:
+            flash('请先登录', 'error')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
 
-@app.route('/')
-def index():
-    configs = Config.query.all()
-    tasks = UserTask.query.all()
-    return render_template('index.html', configs=configs, tasks=tasks)
-
-
-@app.route('/config/new', methods=['GET', 'POST'])
-def add_config():
-    if request.method == 'POST':
-        data = request.form
-        new_config = Config(
-            name=data['name'],
-            root_path=data['root_path'],
-            site_url=data['site_url'],
-            target_directory=data['target_directory'],
-            ignored_directories=data['ignored_directories'],
-            token=data['token'],
-            update_existing=('update_existing' in data)
-        )
-        db.session.add(new_config)
-        db.session.commit()
-        return redirect(url_for('index'))
-    return render_template('config_form.html', config=None)
-
-
-@app.route('/config/<config_id>/edit', methods=['GET', 'POST'])
-def edit_config(config_id):
-    config = db.session.get(Config, config_id)
-    if request.method == 'POST':
-        data = request.form
-        config.name = data['name']
-        config.root_path = data['root_path']
-        config.site_url = data['site_url']
-        config.target_directory = data['target_directory']
-        config.ignored_directories = data['ignored_directories']
-        config.token = data['token']
-        config.update_existing = int(data['update_existing'])  # 处理下拉框提交的值
-        db.session.commit()
-        return redirect(url_for('index'))
-    return render_template('config_form.html', config=config)
-
-
-@app.route('/config/<config_id>/delete', methods=['POST'])
-def delete_config(config_id):
-    config = db.session.get(Config, config_id)
-    if not config:
-        logger.info(f"配置ID {config_id} 未找到")
-        return jsonify({'message': '配置未找到'}), 404
-    db.session.delete(config)
-    db.session.commit()
-    logger.info(f"配置ID {config_id} 已删除")
-    return redirect(url_for('index'))
-
-
-@app.route('/run', methods=['POST'])
-def run_script():
-    config_ids = request.form.getlist('config_ids')
-    for config_id in config_ids:
-        logger.info(f"运行脚本，配置ID: {config_id}")
-        thread = threading.Thread(target=run_script_with_logging, args=(config_id,))
-        thread.start()
-    return redirect(url_for('index'))
-
-
-def run_script_with_logging(config_id):
-    logger.info(f"启动子进程，配置ID: {config_id}")
-    log_dir = 'logs'
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    log_filename = os.path.join(log_dir, f'{config_id}.logs')
-    with open(log_filename, 'w', encoding='utf-8') as log_file:
-        process = subprocess.Popen(['python', 'main.py', config_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                   bufsize=1, universal_newlines=True, encoding='utf-8', errors='ignore')
-
-        def read_output(pipe):
-            for line in iter(pipe.readline, ''):
-                if line:
-                    log_file.write(line)
-                    log_file.flush()
-            pipe.close()
-
-        stdout_thread = threading.Thread(target=read_output, args=(process.stdout,))
-        stderr_thread = threading.Thread(target=read_output, args=(process.stderr,))
-
-        stdout_thread.start()
-        stderr_thread.start()
-
-        stdout_thread.join()
-        stderr_thread.join()
-
-        process.wait()
-        logger.info(f"子进程结束，配置ID: {config_id}, 返回码: {process.returncode}")
-        log_file.write(f"子进程结束，返回码: {process.returncode}\n")
-        log_file.flush()
-
-
-@app.route('/task/new', methods=['GET', 'POST'])
-def add_task():
-    configs = Config.query.all()
-    if request.method == 'POST':
-        data = request.form
-        selected_config_ids = request.form.getlist('config_ids')
-        new_task = UserTask(
-            cron_expression=data['cron_expression'],
-            enabled=('enabled' in data)
-        )
-        for config_id in selected_config_ids:
-            config = db.session.get(Config, config_id)
-            if config:
-                new_task.configs.append(config)
-        db.session.add(new_task)
-        db.session.commit()
-        if new_task.enabled:
-            add_task_to_scheduler(new_task)
-        return redirect(url_for('index'))
-    return render_template('task_form.html', configs=configs, selected_config_ids=[])
-
-
-@app.route('/task/<task_id>/edit', methods=['GET', 'POST'])
-def edit_task(task_id):
-    task = db.session.get(UserTask, task_id)
-    configs = Config.query.all()
-    if request.method == 'POST':
-        data = request.form
-        selected_config_ids = request.form.getlist('config_ids')
-        task.cron_expression = data['cron_expression']
-        task.enabled = ('enabled' in data)
-        task.configs = []
-        for config_id in selected_config_ids:
-            config = db.session.get(Config, config_id)
-            if config:
-                task.configs.append(config)
-        db.session.commit()
-        remove_task_from_scheduler(task)
-        if task.enabled:
-            add_task_to_scheduler(task)
-        return redirect(url_for('index'))
-    selected_config_ids = [config.id for config in task.configs]
-    return render_template('task_form.html', task=task, configs=configs, selected_config_ids=selected_config_ids)
-
-
-@app.route('/task/<task_id>/delete', methods=['POST'])
-def delete_task(task_id):
-    task = db.session.get(UserTask, task_id)
-    if not task:
-        logger.info(f"任务ID {task_id} 未找到")
-        return jsonify({'message': '任务未找到'}), 404
-    remove_task_from_scheduler(task)
-    db.session.delete(task)
-    db.session.commit()
-    logger.info(f"任务ID {task_id} 已删除")
-    return redirect(url_for('index'))
-
-
-@app.route('/task/<task_id>/toggle', methods=['POST'])
-def toggle_task(task_id):
-    task = db.session.get(UserTask, task_id)
-    if task:
-        task.enabled = not task.enabled
-        db.session.commit()
-        if task.enabled:
-            add_task_to_scheduler(task)
-        else:
-            remove_task_from_scheduler(task)
-        return jsonify({'success': True, 'enabled': task.enabled})
-    return jsonify({'success': False, 'error': '任务未找到'}), 404
-
-
-@app.route('/test_cron', methods=['POST'])
-def test_cron_expression():
-    data = request.json
-    cron_expression = data.get('cron_expression')
-
-    try:
-        iter = croniter(cron_expression, datetime.now())
-        next_run_times = [iter.get_next(datetime).strftime('%Y-%m-%d %H:%M:%S') for _ in range(5)]
-        return jsonify({'valid': True, 'next_run_times': next_run_times})
-    except (ValueError, KeyError) as e:
-        return jsonify({'valid': False, 'error': str(e)})
-
-
-def cron_parser(cron_expression):
-    fields = cron_expression.split()
-    if len(fields) != 5:
-        raise ValueError("无效的 cron 表达式。期望 5 个字段，但得到 {len(fields)}")
-    return {
-        'minute': fields[0],
-        'hour': fields[1],
-        'day': fields[2],
-        'month': fields[3],
-        'day_of_week': fields[4]
-    }
-
-
-@app.route('/config/<config_id>/copy', methods=['POST'])
-def copy_config(config_id):
-    config = db.session.get(Config, config_id)
-    if not config:
-        logger.info(f"配置ID {config_id} 未找到")
-        return jsonify({'success': False, 'error': '配置未找到'}), 404
-
-    new_config = Config(
-        id=str(random.randint(100000, 999999)),
-        name=f"{config.name} 副本",
-        root_path=config.root_path,
-        site_url=config.site_url,
-        target_directory=config.target_directory,
-        ignored_directories=config.ignored_directories,
-        token=config.token,
-        update_existing=config.update_existing
-    )
-    db.session.add(new_config)
-    db.session.commit()
-    logger.info(f"配置ID {config_id} 复制到新配置，ID: {new_config.id}")
-    return jsonify({'success': True, 'new_config_id': new_config.id})
-
-
-def remove_task_from_scheduler(task):
-    for config in task.configs:
-        job_id = f'task_{task.id}_config_{config.id}'
-        if scheduler.get_job(job_id):
-            scheduler.remove_job(job_id)
-            logger.info(f"任务 {task.id} 的作业 ID {job_id} 已从调度器中移除")
-
-
-@app.route('/logs/<config_id>', methods=['GET'])
-def get_logs(config_id):
-    log_filename = os.path.join('logs', f'{config_id}.logs')
-    if not os.path.exists(log_filename):
-        return "该配置文件没有运行过，请返回首页运行该配置文件后查看日志。"
-    with open(log_filename, 'r', encoding='utf-8') as log_file:
-        log_content = log_file.read()
-    return log_content
-
-
-@app.route('/task_logs/<task_id>', methods=['GET'])
-def get_task_logs(task_id):
-    log_filename = os.path.join('logs', f'{task_id}.logs')
-    if not os.path.exists(log_filename):
-        return "该任务没有运行记录。"
-    with open(log_filename, 'r', encoding='utf-8', errors='ignore') as log_file:
-        log_content = log_file.read()
-    return log_content
-
-
-def load_tasks_from_db():
-    with app.app_context():
-        tasks = UserTask.query.all()  # 从 UserTask 表中读取所有任务
-        for task in tasks:
-            if task.enabled == 1:  # 检查任务是否启用
-                add_task_to_scheduler(task)  # 将启用的任务添加到调度器
-
-
-# 注册用户
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    if User.query.first():  # 如果已经有用户存在，则跳转到登录页面
-        return redirect(url_for('login'))
-
     if request.method == 'POST':
+        # 获取表单数据
         username = request.form['username']
         password = request.form['password']
-        hashed_password = generate_password_hash(password)
-        new_user = User(username=username, password_hash=hashed_password)
-        db.session.add(new_user)
-        db.session.commit()
-        session['user_id'] = new_user.id
-        return redirect(url_for('index'))
+        # 对密码进行哈希处理
+        password_hash = generate_password_hash(password)
+
+        # 存储用户凭证
+        db_handler.set_user_credentials(username, password_hash)
+
+        flash('注册成功，请登录', 'success')
+        return redirect(url_for('login'))
+
     return render_template('register.html')
 
-
-# 登录用户
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
+        # 获取表单数据
         username = request.form['username']
         password = request.form['password']
-        user = User.query.filter_by(username=username).first()
-        if user and check_password_hash(user.password_hash, password):
-            session['user_id'] = user.id
+
+        # 获取存储的用户凭证
+        stored_username, stored_password_hash = db_handler.get_user_credentials()
+
+        # 检查用户名和密码
+        if username == stored_username and check_password_hash(stored_password_hash, password):
+            # 登录成功
+            session['logged_in'] = True
+            session['username'] = username
+            flash('登录成功', 'success')
             return redirect(url_for('index'))
-        flash('用户名或密码错误')
+        else:
+            flash('用户名或密码错误', 'error')
+
     return render_template('login.html')
 
-
-# 登出用户
 @app.route('/logout')
 def logout():
-    session.pop('user_id', None)
+    session.clear()
+    flash('您已退出登录', 'success')
     return redirect(url_for('login'))
 
 
-@app.route('/user_config', methods=['GET', 'POST'])
-def user_config():
-    user_config = UserConfig.query.first()
-    if not user_config:
-        flash('脚本配置未初始化，请联系管理员')
-        return redirect(url_for('index'))
+# 首页
+@app.route('/')
+@login_required
+def index():
+    invalid_file_trees = []
+    invalid_tree_dir = 'invalid_file_trees'
+
+    if os.path.exists(invalid_tree_dir):
+        for json_file in os.listdir(invalid_tree_dir):
+            if json_file.endswith('.json'):
+                with open(os.path.join(invalid_tree_dir, json_file), 'r', encoding='utf-8') as file:
+                    invalid_file_trees.append({
+                        'name': json_file,  # 保留完整的文件名，包括 .json
+                        'structure': json.load(file)
+                    })
+
+    return render_template('home.html', invalid_file_trees=invalid_file_trees)
+
+@app.route('/view_invalid_directory/<path:directory_name>', methods=['GET'])
+def view_invalid_directory(directory_name):
+    try:
+        invalid_file_tree_path = os.path.join('invalid_file_trees', f'{directory_name}.json')
+        if not os.path.exists(invalid_file_tree_path):
+            return jsonify({"error": "未找到目录树"}), 404
+
+        with open(invalid_file_tree_path, 'r', encoding='utf-8') as file:
+            directory_structure = json.load(file)
+
+        # 将目录树返回给前端
+        return jsonify({"structure": json.dumps(directory_structure, ensure_ascii=False, indent=4)})
+    except Exception as e:
+        logger.error(f"查看目录树时出错: {e}")
+        return jsonify({"error": "查看目录树时出错"}), 500
+
+def get_target_directory_by_config_id(config_id):
+    """
+    根据 config_id 从数据库获取 target_directory
+    """
+    config = db_handler.get_webdav_config(config_id)
+    if config:
+        return config['target_directory']
+    return None
+
+@app.route('/delete_invalid_directory/<path:json_filename>', methods=['POST'])
+def delete_invalid_directory(json_filename):
+    try:
+        # 确保文件名以 'invalid_file_trees_' 开头并以 '.json' 结尾
+        if not json_filename.startswith('invalid_file_trees_') or not json_filename.endswith('.json'):
+            return jsonify({"error": "无效的文件名"}), 400
+
+        # 从文件名中提取 config_id
+        config_id_str = json_filename.replace('invalid_file_trees_', '').replace('.json', '')
+        if not config_id_str.isdigit():
+            return jsonify({"error": "无效的配置 ID"}), 400
+
+        config_id = int(config_id_str)
+
+        # 从数据库中获取 target_directory
+        target_directory = get_target_directory_by_config_id(config_id)
+        if not target_directory:
+            return jsonify({"error": "未找到对应的配置"}), 404
+
+        # 构建 JSON 文件的路径
+        json_file_path = os.path.join('invalid_file_trees', json_filename)
+        if not os.path.exists(json_file_path):
+            return jsonify({"error": "未找到指定的 JSON 文件"}), 404
+
+        # 读取 JSON 文件，获取目录树
+        with open(json_file_path, 'r', encoding='utf-8') as file:
+            directory_tree = json.load(file)
+
+        # 遍历目录树，删除所有列出的 .strm 文件
+        def delete_strm_files(base_path, tree):
+            for name, content in tree.items():
+                current_path = os.path.join(base_path, name)
+                if isinstance(content, dict):
+                    # 如果是目录，递归遍历
+                    delete_strm_files(current_path, content)
+                    # 删除空目录
+                    if os.path.exists(current_path) and not os.listdir(current_path):
+                        os.rmdir(current_path)
+                        logger.info(f"删除空目录: {current_path}")
+                elif content == "invalid" and name.endswith('.strm'):
+                    # 删除文件
+                    if os.path.exists(current_path):
+                        os.remove(current_path)
+                        logger.info(f"删除文件: {current_path}")
+
+        # 开始删除
+        delete_strm_files(target_directory, directory_tree)
+
+        # 删除对应的失效目录树 JSON 文件
+        os.remove(json_file_path)
+        logger.info(f"删除失效目录树 JSON 文件: {json_file_path}")
+
+        flash('目录及其 .strm 文件已成功删除！', 'success')
+        return jsonify({"message": "目录和失效目录树已成功删除"}), 200
+
+    except Exception as e:
+        logger.error(f"删除目录时出错: {e}")
+        return jsonify({"error": "删除目录时出错"}), 500
+
+@app.route('/invalid_file_trees')
+def invalid_file_trees():
+    invalid_file_trees = []
+    invalid_tree_dir = 'invalid_file_trees'
+
+    if os.path.exists(invalid_tree_dir):
+        for json_file in os.listdir(invalid_tree_dir):
+            if json_file.endswith('.json'):
+                invalid_file_trees.append({
+                    'name': json_file,  # 保留完整的文件名，包括 .json
+                })
+
+    return render_template('invalid_file_trees.html', invalid_file_trees=invalid_file_trees)
+
+@app.route('/get_invalid_file_tree/<path:json_filename>', methods=['GET'])
+def get_invalid_file_tree(json_filename):
+    try:
+        # 构建 JSON 文件的路径
+        json_file_path = os.path.join('invalid_file_trees', json_filename)
+        if not os.path.exists(json_file_path):
+            return jsonify({"error": "未找到指定的 JSON 文件"}), 404
+
+        # 读取 JSON 文件，获取目录树
+        with open(json_file_path, 'r', encoding='utf-8') as file:
+            directory_tree = json.load(file)
+
+        # 返回目录树结构
+        return jsonify({"structure": directory_tree}), 200
+
+    except Exception as e:
+        logger.error(f"获取目录树时出错: {e}")
+        return jsonify({"error": "获取目录树时出错"}), 500
+
+
+# 配置文件页面
+@app.route('/configs')
+@login_required
+def configs():
+    try:
+        # 查询数据库
+        db_handler.cursor.execute("SELECT config_id, config_name, url, username, rootpath, target_directory FROM config")
+        configs = db_handler.cursor.fetchall()
+
+        # 调试输出
+        print(f"从数据库中读取的配置: {configs}")
+
+        return render_template('configs.html', configs=configs)
+    except Exception as e:
+        flash(f"加载配置时出错: {e}", 'error')
+        return render_template('configs.html', configs=[])
+
+@app.route('/random_image')
+def random_image():
+    # 获取目录中的所有图片文件
+    images = os.listdir(IMAGE_FOLDER)
+    # 随机选择一张图片
+    random_image = random.choice(images)
+    # 返回该图片
+    return send_from_directory(IMAGE_FOLDER, random_image)
+
+@app.before_request
+def before_request():
+    g.local_version = local_version  # 动态获取版本号的逻辑
+
+
+@app.route('/edit/<int:config_id>', methods=['GET', 'POST'])
+def edit_config(config_id):
+    try:
+        if request.method == 'POST':
+            # 打印表单数据，调试用途
+            print(f"收到的表单数据: {request.form}")
+
+            config_name = request.form['config_name']
+            url = request.form['url']
+            username = request.form['username']
+            password = request.form['password']
+            rootpath = request.form['rootpath']
+            target_directory = request.form['target_directory']
+            download_interval_range = request.form.get('download_interval_range', '1-3')  # 保持为字符串
+            download_enabled = int(request.form.get('download_enabled', 0))  # 获取是否启用下载功能，默认0（禁用）
+            update_mode = request.form['update_mode']  # 获取更新模式
+
+            # 自动为 rootpath 添加 /dav/ 前缀（如果没有）
+            if not rootpath.startswith('/dav/'):
+                rootpath = '/dav/' + rootpath.lstrip('/')
+
+            # 更新配置，包括下载启用状态、更新模式和大小阈值
+            db_handler.cursor.execute('''
+                UPDATE config 
+                SET config_name = ?, url = ?, username = ?, password = ?, rootpath = ?, target_directory = ?, download_enabled = ?, update_mode = ?, download_interval_range = ?
+                WHERE config_id = ?
+            ''', (config_name, url, username, password, rootpath, target_directory, download_enabled, update_mode, download_interval_range, config_id))
+            db_handler.conn.commit()
+
+            flash('配置已成功更新！', 'success')
+            return redirect(url_for('configs'))
+
+        # GET 请求时，获取并显示现有的配置项
+        db_handler.cursor.execute('''
+            SELECT config_name, url, username, password, rootpath, target_directory, download_enabled, update_mode, download_interval_range 
+            FROM config 
+            WHERE config_id = ?
+        ''', (config_id,))
+        config = db_handler.cursor.fetchone()
+
+        if config and config[8] is None:
+            config = list(config)  # 转换为列表以进行修改
+            config[8] = '1-3'  # 默认值为字符串 '1-3'
+
+        return render_template('edit_config.html', config=config)
+    except Exception as e:
+        flash(f"编辑配置时出错: {e}", 'error')
+        return redirect(url_for('configs'))
+
+
+
+
+
+
+
+@app.route('/new', methods=['GET', 'POST'])
+def new_config():
+    if request.method == 'POST':
+        try:
+            # 从表单中获取用户输入的数据
+            config_name = request.form['config_name']
+            url = request.form['url']
+            username = request.form['username']
+            password = request.form['password']
+            rootpath = request.form['rootpath']
+            target_directory = request.form['target_directory']
+            download_interval_range = request.form.get('download_interval_range', '1-3')  # 保持为字符串
+            download_enabled = int(request.form.get('download_enabled', 0))  # 获取是否启用下载功能，默认0（禁用）
+            update_mode = request.form['update_mode']  # 获取更新模式
+
+            # 自动为 rootpath 添加 /dav/ 前缀（如果没有）
+            if not rootpath.startswith('/dav/'):
+                rootpath = '/dav/' + rootpath.lstrip('/')
+
+            # 插入新配置到数据库，确保所有字段都被插入
+            db_handler.cursor.execute('''
+                INSERT INTO config (config_name, url, username, password, rootpath, target_directory, download_interval_range, download_enabled, update_mode) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (config_name, url, username, password, rootpath, target_directory, download_interval_range, download_enabled, update_mode))
+            db_handler.conn.commit()
+
+            flash('新配置已成功添加！', 'success')
+            return redirect(url_for('configs'))
+        except Exception as e:
+            flash(f"添加新配置时出错: {e}", 'error')
+
+    return render_template('new_config.html')
+
+
+
+
+@app.route('/copy_config/<int:config_id>', methods=['GET'])
+def copy_config(config_id):
+    try:
+        # 查询要复制的配置
+        db_handler.cursor.execute('SELECT config_name, url, username, password, rootpath, target_directory, download_interval_range, download_enabled, update_mode FROM config WHERE config_id = ?', (config_id,))
+        config = db_handler.cursor.fetchone()
+
+        if not config:
+            flash(f"未找到配置 ID 为 {config_id} 的配置文件。", 'error')
+            return render_template('404.html'), 404  # 返回404页面
+
+        # 生成新名称，确保唯一性
+        new_name = config[0] + " - 复制"
+
+        db_handler.cursor.execute('''
+            INSERT INTO config (config_name, url, username, password, rootpath, target_directory, download_interval_range, download_enabled, update_mode) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (new_name, config[1], config[2], config[3], config[4], config[5], config[6], config[7], config[8]))
+
+        # 提交事务
+        db_handler.conn.commit()
+
+        # 添加日志输出，确认插入成功
+        print(f"新配置已插入数据库: {new_name}")
+        flash(f"配置已成功复制！", 'success')
+
+    except Exception as e:
+        flash(f"复制配置时出错: {e}", 'error')
+        return render_template('500.html'), 500  # 返回500错误
+
+    return redirect(url_for('configs'))
+
+
+
+@app.route('/delete/<int:config_id>')
+def delete_config(config_id):
+    try:
+        db_handler.cursor.execute("DELETE FROM config WHERE config_id = ?", (config_id,))
+        db_handler.conn.commit()
+        flash('配置已成功删除！', 'success')
+    except Exception as e:
+        flash(f"删除配置时出错: {e}", 'error')
+        return render_template('500.html'), 500  # 返回500错误
+
+    return redirect(url_for('configs'))
+
+
+
+# 设置页面
+@app.route('/settings', methods=['GET', 'POST'])
+def settings():
 
     if request.method == 'POST':
-        logger.info("接收到 POST 请求，数据: %s", request.form)
         try:
-            user_config.video_formats = request.form['video_formats']
-            user_config.subtitle_formats = request.form['subtitle_formats']
-            user_config.image_formats = request.form['image_formats']
-            user_config.download_threads = int(request.form['download_threads'])
-            user_config.enable_metadata_download = request.form['enable_metadata_download'] == '1'
-            user_config.enable_invalid_link_check = request.form['enable_invalid_link_check'] == '1'
-            user_config.enable_nfo_download = request.form['enable_nfo_download'] == '1'
-            user_config.enable_subtitle_download = request.form['enable_subtitle_download'] == '1'
-            user_config.enable_image_download = request.form['enable_image_download'] == '1'
-            user_config.enable_refresh = request.form['enable_refresh'] == '1'
+            video_formats = request.form['video_formats']
+            subtitle_formats = request.form['subtitle_formats']
+            image_formats = request.form['image_formats']
+            metadata_formats = request.form['metadata_formats']
+            size_threshold = int(request.form['size_threshold'])
+            # 使用现有的 db_handler 进行数据库更新
+            db_handler.cursor.execute('''
+                UPDATE user_config 
+                SET video_formats = ?, subtitle_formats = ?, image_formats = ?, metadata_formats = ?,size_threshold = ?
+            ''', (video_formats, subtitle_formats, image_formats, metadata_formats, size_threshold))
+            db_handler.conn.commit()
 
-            db.session.commit()
-            flash('配置已更新')
-            logger.info("配置更新成功")
+
+            flash('设置已成功更新！', 'success')
         except Exception as e:
-            db.session.rollback()
-            logger.error("配置更新失败: %s", str(e))
-            flash('更新失败: ' + str(e))
-        return redirect(url_for('user_config'))
-    return render_template('user_config.html', user_config=user_config)
+            flash(f"更新设置时出错: {e}", 'error')
+        return redirect(url_for('settings'))
+
+    # 显示当前的脚本配置
+    script_config = db_handler.get_script_config()
+
+    # 获取当前的 download_enabled 值
+    db_handler.cursor.execute('SELECT download_enabled FROM config LIMIT 1')
+    result = db_handler.cursor.fetchone()
+
+    # 检查是否有返回结果
+    if result is None:
+        # 如果查询结果为 None，则设置 download_enabled 为默认值 (1)
+        download_enabled = 1
+    else:
+        # 否则获取数据库中的值
+        download_enabled = result[0]
+
+    script_config['download_enabled'] = bool(download_enabled)  # 将 download_enabled 传递给前端
+
+    return render_template('settings.html', script_config=script_config)
+
+
+
+
+
+@app.route('/logs/<int:config_id>')
+def logs(config_id):
+    log_dir = os.path.join(os.getcwd(), 'logs')
+
+    # 获取指定config_id的所有日志文件（以config_id为前缀）
+    log_files = [f for f in os.listdir(log_dir) if f.startswith(f'config_{config_id}') and f.endswith('.log')]
+
+    if not log_files:
+        # 如果没有找到相关日志文件，返回404错误
+        abort(404, description=f"没有找到与配置 ID {config_id} 相关的日志文件")
+
+    # 按文件修改时间倒序排列，获取最新的日志文件
+    latest_log_file = max(log_files, key=lambda f: os.path.getmtime(os.path.join(log_dir, f)))
+    log_file_path = os.path.join(log_dir, latest_log_file)
+
+    # 读取日志文件并按行倒序排列
+    with open(log_file_path, 'r', encoding='utf-8') as log_file:
+        log_content = log_file.readlines()
+        log_content.reverse()  # 倒序排列日志行
+
+    # 将倒序后的日志内容转换成字符串，确保每行都以 <br> 分隔
+    log_content = '<br>'.join(log_content)
+
+    # 渲染日志页面并显示日志内容
+    return render_template('logs_single.html', log_content=log_content, config_id=config_id)
+
+
+
+
+
+
+
+# 定义函数来运行 main.py
+def run_config(config_id):
+    # 获取当前文件的目录路径
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # 使用绝对路径指定 main.py 的位置
+    main_script_path = os.path.join(current_dir, 'main.py')
+
+    if os.path.exists(main_script_path):
+        command = f"python3.9 {main_script_path} {config_id}"
+        logger.info(f"启动配置ID: {config_id} 的命令: {command}")
+        subprocess.Popen(command, shell=True)
+    else:
+        logger.error(f"无法找到 main.py 文件: {main_script_path}")
+
+@app.route('/run_selected_configs', methods=['POST'])
+def run_selected_configs():
+    selected_configs = request.form.getlist('selected_configs')
+    action = request.form.get('action')
+
+    if not selected_configs:
+        flash('请选择至少一个配置', 'error')
+        return redirect(url_for('configs'))
+
+    if action == 'copy_selected':
+        # 处理复制选定配置
+        for config_id in selected_configs:
+            copy_config(int(config_id))  # 你可以直接调用之前定义的 `copy_config` 函数
+        flash('选定的配置已成功复制！', 'success')
+
+    elif action == 'delete_selected':
+        # 处理删除选定配置
+        for config_id in selected_configs:
+            db_handler.cursor.execute('DELETE FROM config WHERE config_id = ?', (config_id,))
+        db_handler.conn.commit()
+        flash('选定的配置已成功删除！', 'success')
+
+    elif action == 'run_selected':
+        for config_id in selected_configs:
+            run_config(int(config_id))  # 调用 `run_config` 函数来运行 main.py
+        flash('选定的配置已开始运行！', 'success')
+
+    return redirect(url_for('configs'))
+
+@app.route('/scheduled_tasks')
+def scheduled_tasks():
+    try:
+        # 从定时任务模块中获取所有定时任务
+        tasks = list_tasks_in_cron()  # 调用 task_scheduler.py 的 list_tasks_in_cron 方法
+        return render_template('scheduled_tasks.html', tasks=tasks)
+    except Exception as e:
+        flash(f'获取定时任务时出错: {e}', 'error')
+        return redirect(url_for('index'))
+@app.route('/new_task', methods=['GET', 'POST'])
+def new_task():
+    if request.method == 'POST':
+        task_name = request.form['task_name']
+        config_ids = request.form.getlist('config_ids')  # 获取选择的配置文件 ID，列表形式
+        interval_type = request.form['interval_type']
+        interval_value = request.form['interval_value']
+        task_mode = request.form['task_mode']
+        is_enabled = request.form['is_enabled'] == '1'  # 将字符串转换为布尔值
+
+        # 验证间隔值
+        try:
+            interval_value_int = int(interval_value)
+            if interval_type == 'minute' and not (1 <= interval_value_int <= 59):
+                raise ValueError('分钟间隔值必须在 1 到 59 之间')
+            elif interval_type == 'hourly' and not (1 <= interval_value_int <= 23):
+                raise ValueError('小时间隔值必须在 1 到 23 之间')
+            elif interval_type == 'daily' and not (1 <= interval_value_int <= 31):
+                raise ValueError('天数间隔值必须在 1 到 31 之间')
+            elif interval_type == 'weekly' and not (0 <= interval_value_int <= 6):
+                raise ValueError('星期值必须在 0（周日）到 6（周六）之间')
+            elif interval_type == 'monthly' and not (1 <= interval_value_int <= 12):
+                raise ValueError('月份间隔值必须在 1 到 12 之间')
+        except ValueError as ve:
+            flash(str(ve), 'error')
+            return redirect(url_for('new_task'))
+
+        # 将间隔类型和间隔值转换为 cron 时间格式
+        cron_time = convert_to_cron_time(interval_type, interval_value)
+
+        # 调用定时任务模块的函数添加任务
+        task_ids = add_tasks_to_cron(
+            task_name=task_name,
+            cron_time=cron_time,
+            config_ids=config_ids,
+            task_mode=task_mode,
+            is_enabled=is_enabled
+        )
+
+        flash('任务已成功添加！', 'success')
+        return redirect(url_for('scheduled_tasks'))
+
+    # 从数据库中读取配置文件列表
+    configs = db_handler.get_all_configurations()
+    return render_template('new_task.html', configs=configs)
+
+@app.route('/update_task/<task_id>', methods=['GET', 'POST'])
+def update_task(task_id):
+    if request.method == 'POST':
+        task_name = request.form['task_name']
+        config_ids = request.form.getlist('config_ids')
+        interval_type = request.form['interval_type']
+        interval_value = request.form['interval_value']
+        task_mode = request.form['task_mode']
+        is_enabled = request.form['is_enabled'] == '1'
+
+        # 验证间隔值
+        try:
+            interval_value_int = int(interval_value)
+            if interval_type == 'minute' and not (1 <= interval_value_int <= 59):
+                raise ValueError('分钟间隔值必须在 1 到 59 之间')
+            elif interval_type == 'hourly' and not (1 <= interval_value_int <= 23):
+                raise ValueError('小时间隔值必须在 1 到 23 之间')
+            elif interval_type == 'daily' and not (1 <= interval_value_int <= 31):
+                raise ValueError('天数间隔值必须在 1 到 31 之间')
+            elif interval_type == 'weekly' and not (0 <= interval_value_int <= 6):
+                raise ValueError('星期值必须在 0（周日）到 6（周六）之间')
+            elif interval_type == 'monthly' and not (1 <= interval_value_int <= 12):
+                raise ValueError('月份间隔值必须在 1 到 12 之间')
+        except ValueError as ve:
+            flash(str(ve), 'error')
+            return redirect(url_for('update_task', task_id=task_id))
+
+        # 将间隔类型和间隔值转换为 cron 时间格式
+        cron_time = convert_to_cron_time(interval_type, interval_value)
+
+        # 更新任务信息
+        update_tasks_in_cron(
+            task_ids=[task_id],
+            cron_time=cron_time,
+            config_ids=config_ids,
+            task_mode=task_mode,
+            task_name=task_name,
+            is_enabled=is_enabled
+        )
+
+        flash('任务已成功更新！', 'success')
+        return redirect(url_for('scheduled_tasks'))
+
+    # GET 请求时，加载任务信息
+    tasks = list_tasks_in_cron()  # 调用 task_scheduler.py 的 list_tasks_in_cron 方法
+    task = next((t for t in tasks if t.get('task_id') == task_id), None)
+    configs = db_handler.get_all_configurations()
+
+    if not task:
+        flash('未找到指定的任务', 'error')
+        return redirect(url_for('scheduled_tasks'))
+
+    # 获取已有的配置文件 ID，并确保它们是字符串
+    selected_config_ids = [str(task.get('config_id'))]
+    app.logger.debug(f"Selected Config IDs: {selected_config_ids}")
+
+    return render_template('edit_task.html', task=task, configs=configs, selected_config_ids=selected_config_ids)
+
+
+@app.route('/delete_task/<task_id>', methods=['POST'])
+def delete_task(task_id):
+    try:
+        # 删除定时任务
+        delete_tasks_from_cron([task_id])  # 调用 task_scheduler.py 的 delete_tasks_from_cron 方法
+
+        flash('任务已成功删除！', 'success')
+    except Exception as e:
+        flash(f"删除任务时出错: {e}", 'error')
+        print(f"删除任务时出现错误: {e}")
+
+    return redirect(url_for('scheduled_tasks'))
+
+@app.route('/delete_selected_tasks', methods=['POST'])
+def delete_selected_tasks():
+    try:
+        data = request.get_json()
+        task_ids = data.get('task_ids', [])
+        if not task_ids:
+            return jsonify({'success': False, 'error': '未提供任务ID'})
+
+        delete_tasks_from_cron(task_ids)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+
+@app.route('/view_logs/<task_id>')
+def view_logs(task_id):
+    # 日志文件的路径
+    log_dir = os.path.join(os.getcwd(), 'logs')
+    # 构建日志文件的搜索模式
+    log_pattern = os.path.join(log_dir, f'task_{task_id}_*.log')
+    log_files = glob.glob(log_pattern)
+
+    if log_files:
+        # 按照文件修改时间排序，最新的文件排在第一个
+        log_files.sort(key=os.path.getmtime, reverse=True)
+
+        # 只读取最新的日志文件
+        latest_log_file = log_files[0]
+        with open(latest_log_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        log_contents = [{
+            'filename': os.path.basename(latest_log_file),
+            'content': content
+        }]
+    else:
+        log_contents = None
+
+    return render_template('view_logs.html', log_contents=log_contents, task_id=task_id)
+
+
+def restart_app():
+    print("重启应用...")
+    # 重启当前应用
+
+    os.execv(sys.executable, ['python'] + sys.argv)
+
+
+def download_and_extract(url, extract_to='.'):
+    try:
+        # 下载文件
+        local_filename = url.split('/')[-1]
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+            with open(local_filename, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+        # 解压缩文件
+        if local_filename.endswith('.zip'):
+            with zipfile.ZipFile(local_filename, 'r') as zip_ref:
+                zip_ref.extractall(extract_to)
+
+        # 删除压缩包
+        os.remove(local_filename)
+
+        return True
+    except Exception as e:
+        print(f"下载或解压时出错: {e}")
+        return False
+
+def check_for_updates(source, channel):
+    sources = {
+        'domestic': 'https://www.tefuir0829.cn/version.json',
+        'github': 'https://raw.githubusercontent.com/tefuirZ/alist-strm/refs/heads/main/version.json'
+    }
+
+    channels = {
+        'stable': 'stable',
+        'beta': 'beta'
+    }
+
+    try:
+        # 选择源和通道
+        source_url = sources.get(source)
+        channel = channels.get(channel, 'stable')  # 默认选择正式版
+
+        # 获取版本信息
+        response = requests.get(source_url)
+        response.raise_for_status()  # 检查是否有请求错误
+
+        version_data = response.json()
+        latest_version_info = version_data.get(channel)
+
+        # 本地版本号
+
+
+        # 比较远端版本号与本地版本号
+        latest_version = latest_version_info.get('version')
+        if latest_version > local_version:
+            # 返回更新信息
+            return {
+                "new_version": True,
+                "latest_version": latest_version,
+                "download_url": latest_version_info.get('download_url'),
+                "changelog": latest_version_info.get('changelog')
+            }
+        else:
+            # 已是最新版本
+            return {"new_version": False}
+
+    except Exception as e:
+        # 出错时返回字典结构，而不是字符串
+        return {
+            "new_version": False,
+            "error": f"检查更新时出错: {e}"
+        }
+
+
+
+
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
+
+@app.errorhandler(500)
+def internal_server_error(e):
+    return render_template('500.html'), 500
+
+@app.errorhandler(400)
+def bad_request_error(e):
+    return render_template('400.html'), 400
+
+
+# 视图函数：其他页面
+# 视图函数：其他页面
+@app.route('/other', methods=['GET', 'POST'])
+@login_required  # 如果需要登录才能访问
+def other():
+    if request.method == 'POST':
+        action = request.form.get('action')
+        if action == 'edit':
+            # 获取用户输入的变量
+            target_directory = request.form.get('target_directory')
+            old_domain = request.form.get('old_domain')
+            new_domain = request.form.get('new_domain')
+            # 保存变量到会话
+            session['script_params'] = {
+                'target_directory': target_directory,
+                'old_domain': old_domain,
+                'new_domain': new_domain
+            }
+            flash('参数已保存。', 'success')
+            return redirect(url_for('other'))
+        elif action == 'run':
+            # 从会话中获取变量
+            script_params = session.get('script_params')
+            if not script_params:
+                flash('请先设置脚本参数。', 'error')
+                return redirect(url_for('other'))
+            # 运行脚本
+            result = run_replace_domain_script(
+                script_params['target_directory'],
+                script_params['old_domain'],
+                script_params['new_domain']
+            )
+            if result:
+                flash('脚本已启动！请查看日志。', 'success')
+            else:
+                flash('脚本启动失败。', 'error')
+            return redirect(url_for('other'))
+    else:
+        # GET 请求，渲染页面并传递日志内容
+        script_params = session.get('script_params', {})
+        log_content = get_script_log()  # 获取日志内容
+        return render_template('other.html',
+                               script_params=script_params,
+                               log_content=log_content)
+
+# 辅助函数：运行脚本
+def run_replace_domain_script(target_directory, old_domain, new_domain):
+    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'replace_domain.py')
+    try:
+        # 构建命令
+        command = [
+            'python3',
+            script_path,
+            target_directory,
+            old_domain,
+            new_domain
+        ]
+        # 后台运行脚本
+        subprocess.Popen(command)
+        app.logger.info(f"已启动脚本: {' '.join(command)}")
+        return True
+    except Exception as e:
+        app.logger.error(f"运行脚本时出错：{e}")
+        return False
+
+def get_script_log():
+    log_dir = os.path.join(os.getcwd(), 'logs')
+    log_file_name = 'replace_domain.log'
+    log_file = os.path.join(log_dir, log_file_name)
+    if os.path.exists(log_file):
+        with open(log_file, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            # 只返回最后 1000 行
+            return ''.join(lines[-1000:])
+    else:
+        return '日志文件不存在。'
+
+@app.route('/about', methods=['GET', 'POST'])
+def about():
+    if request.method == 'POST':
+        source = request.form.get('source', 'github')
+        channel = request.form.get('channel', 'stable')
+
+        # 检查更新
+        update_info = check_for_updates(source, channel)
+
+        if "error" in update_info:
+            return jsonify(error=update_info["error"])
+        elif update_info.get("new_version"):
+            return jsonify(new_version=True,
+                           latest_version=update_info.get('latest_version'),
+                           changelog=update_info.get('changelog'))
+        else:
+            return jsonify(new_version=False)
+
+    return render_template('about.html')
+
+def update_version():
+    source = request.form.get('source', 'github')
+    channel = request.form.get('channel', 'stable')
+
+    # 检查更新
+    update_info = check_for_updates(source, channel)
+
+    if update_info.get("new_version"):
+        download_url = update_info.get('download_url')
+
+        # 下载并解压新版本
+        success = download_and_extract(download_url)
+
+        if success:
+            try:
+                # 运行 check_and_install.py 来检查和安装依赖
+                subprocess.check_call([sys.executable, "check_and_install.py"])
+
+                # 安装完成后，重启应用
+                return jsonify(message="新版本下载并安装成功！应用即将重启。")
+            except subprocess.CalledProcessError as e:
+                return jsonify(message=f"更新失败，依赖安装时出错：{e}")
+        else:
+            return jsonify(message="更新失败，下载或解压时出错。")
+    else:
+        return jsonify(message="当前已是最新版本，无需更新。")
+
+
+
+
 
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()  # 确保数据库表被创建
-        init_app(app)  # 初始化应用
-        load_tasks_from_db()  # 加载数据库中的任务并添加到调度器
+    app.run(host="0.0.0.0", port=5000, debug=True)
 
-    app.run(debug=False)
+
 

@@ -4,10 +4,12 @@ FROM python:3.9-slim
 # 设置工作目录
 WORKDIR /app
 
-# 安装curl和其他必要的软件包，包括更新依赖包和设置时区
+# 安装必要的软件包，包括 curl, cron, tzdata 和 supervisord
 RUN apt-get update && apt-get install -y \
     curl \
+    cron \
     tzdata \
+    supervisor \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -20,7 +22,6 @@ COPY requirements.txt .
 
 # 安装依赖包
 RUN pip install --no-cache-dir -r requirements.txt
-
 
 COPY . .
 
@@ -35,5 +36,8 @@ ENV CONFIG_PATH=/config
 # 暴露 Flask 默认运行端口
 EXPOSE 5000
 
-# 使用 Gunicorn 运行 Flask 应用
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]
+# 复制 supervisord 配置文件
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# 使用 supervisord 启动
+CMD ["/usr/bin/supervisord"]
