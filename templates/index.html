@@ -62,10 +62,10 @@
         <!-- 导航菜单使用list-group -->
         <div class="list-group">
             <a href="{{ url_for('index') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'index' %}active{% endif %}">首页</a>
-            <a href="{{ url_for('configs') }}" class="list-group-item list-group-item-action {% if request.endpoint in ['configs', 'edit_config', 'new_config'] %}active{% endif %}">配置文件</a>
+            <a href="{{ url_for('configs') }}" class="list-group-item list-group-item-action {% if request.endpoint in ['configs', 'edit_config', 'new_config'] %}active{% endif %}">创建strmの配置文件</a>
             <a href="{{ url_for('scheduled_tasks') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'scheduled_tasks' %}active{% endif %}">定时任务</a>
-            <a href="{{ url_for('settings') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'settings' %}active{% endif %}">设置</a>
-            <a href="{{ url_for('invalid_file_trees') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'invalid_file_trees' %}active{% endif %}">失效的STRM文件</a>
+            <a href="{{ url_for('settings') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'settings' %}active{% endif %}">脚本全局设置</a>
+            <a href="{{ url_for('invalid_file_trees') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'invalid_file_trees' %}active{% endif %}">失效的STRM文件查看</a>
             <a href="{{ url_for('other') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'other' %}active{% endif %}">其他</a>
             <a href="{{ url_for('about') }}" class="list-group-item list-group-item-action {% if request.endpoint == 'about' %}active{% endif %}">关于</a>
             <a href="{{ url_for('logout') }}" class="list-group-item list-group-item-action">登出</a>

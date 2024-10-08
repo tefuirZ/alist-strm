@@ -1,14 +1,54 @@
 {% extends 'index.html' %}
 
 {% block content %}
-<div class="card">
-    <h1>欢迎使用alist-strm管理界面！</h1>
-    <p>在这里，您可以：</p>
-    <ul>
-        <li>管理 <a href="{{ url_for('configs') }}">配置文件</a></li>
-        <li>设置 <a href="{{ url_for('scheduled_tasks') }}">定时任务</a></li>
-        <li>查看 <a href="{{ url_for('invalid_file_trees') }}">失效的STRM文件</a></li>
-        <li>调整 <a href="{{ url_for('settings') }}">脚本设置</a></li>
-    </ul>
+<div class="container mt-4">
+    <!-- 欢迎卡片开始 -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h1 class="card-title">欢迎使用alist-strm管理界面！</h1>
+            <p class="card-text">在这里，您可以：</p>
+            <ul>
+                <li>管理 <a href="{{ url_for('configs') }}">配置文件</a></li>
+                <li>设置 <a href="{{ url_for('scheduled_tasks') }}">定时任务</a></li>
+                <li>查看 <a href="{{ url_for('invalid_file_trees') }}">失效的STRM文件</a></li>
+                <li>调整 <a href="{{ url_for('settings') }}">脚本设置</a></li>
+             <li>阅读 <a href="https://www.tefuir0829.cn/" target="_blank">项目文档</a></li> <!-- 外部文档链接 -->
+            </ul>
+        </div>
+    </div>
+    <!-- 欢迎卡片结束 -->
+
+    <!-- 项目简介卡片开始 -->
+    <div class="row">
+        <!-- 示例卡片，您可以根据需要添加更多卡片 -->
+        <div class="col-md-4 mb-4">
+            <div class="card h-100">
+                <img src="{{ url_for('static', filename='images/project_intro1.png') }}" class="card-img-top" alt="项目简介1">
+                <div class="card-body">
+                    <h5 class="card-title">批量创建strm文件</h5>
+                    <p class="card-text">通过alist-webdav免挂载到本地进行批量创建strm文件、以及下载相关元数据文件</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-4">
+            <div class="card h-100">
+                <img src="{{ url_for('static', filename='images/project_intro2.png') }}" class="card-img-top" alt="项目简介2">
+                <div class="card-body">
+                    <h5 class="card-title">定时创建、校验strm文件</h5>
+                    <p class="card-text">通过cron任务定时创建、校验strm文件是否有效</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-4">
+            <div class="card h-100">
+                <img src="{{ url_for('static', filename='images/project_intro3.png') }}" class="card-img-top" alt="项目简介3">
+                <div class="card-body">
+                    <h5 class="card-title">如果你觉得好用</h5>
+                    <p class="card-text">如果你觉得本程序好用，可以帮我给个小星星吗，如果可以的话可以请作者喝杯咖啡不~</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- 项目简介卡片结束 -->
 </div>
 {% endblock %}
