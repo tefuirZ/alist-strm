@@ -10,8 +10,6 @@ from queue import Queue
 from db_handler import DBHandler
 from logger import setup_logger
 
-
-
 # 初始化全局计数器
 strm_file_counter = 0  # 总的 strm 文件数量
 video_file_counter = 0  # 总的视频文件数量
@@ -31,10 +29,8 @@ def connect_webdav(config):
         password=config['password'],
         protocol=config['protocol']
     )
-    pass
 
-
-def load_cached_tree(config_id):
+def load_cached_tree(config_id, logger):
     # 确保 cache 目录存在
     cache_dir = 'cache'
     if not os.path.exists(cache_dir):
@@ -51,10 +47,8 @@ def load_cached_tree(config_id):
         except Exception as e:
             logger.info(f"加载缓存文件出错: {e}")
     return None
-    pass
 
-
-def save_tree_to_cache(file_tree, config_id):
+def save_tree_to_cache(file_tree, config_id, logger):
     # 确保 cache 目录存在
     cache_dir = 'cache'
     if not os.path.exists(cache_dir):
@@ -70,7 +64,6 @@ def save_tree_to_cache(file_tree, config_id):
         logger.info(f"目录树缓存文件 '{cache_file}' 保存成功。")
     except Exception as e:
         logger.info(f"保存目录树缓存文件出错: {e}")
-    pass
 
 # 比较两个目录树，如果相同返回 True，否则返回 False
 def compare_directory_trees(cached_tree, current_tree):
@@ -82,13 +75,22 @@ def compare_directory_trees(cached_tree, current_tree):
            cached_file['modified'] != current_file['modified']:
             return False
     return True
-    pass
 
+def build_local_directory_tree(local_root, logger):
+    """
+    构建本地目录树，包括所有 .strm 文件的信息。
+    """
+    local_tree = {}
+    for root, dirs, files in os.walk(local_root):
+        relative_root = os.path.relpath(root, local_root)
+        local_tree[relative_root] = set()
+        for file in files:
+            if file.lower().endswith('.strm'):
+                local_tree[relative_root].add(file)
+    logger.info("本地目录树已加载。")
+    return local_tree
 
-
-
-
-def list_files_recursive_with_cache(webdav, directory, config, script_config, size_threshold, visited=None):
+def list_files_recursive_with_cache(webdav, directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None):
     global video_file_counter, strm_file_counter, directory_strm_file_counter, total_download_file_counter
     decoded_directory = unquote(directory)
 
@@ -105,8 +107,6 @@ def list_files_recursive_with_cache(webdav, directory, config, script_config, si
         logger.info(f"尝试遍历目录: {decoded_directory}")
         files = webdav.ls(directory)  # 列出 WebDAV 中的文件
         file_tree = []
-
-        # 解码URL编码的目录名称，确保中文正常显示
 
         # 处理本地目录路径，去掉 WebDAV 上的根目录部分
         local_relative_path = decoded_directory.replace(config['rootpath'], '').lstrip('/')
@@ -130,25 +130,23 @@ def list_files_recursive_with_cache(webdav, directory, config, script_config, si
 
             # 如果是文件夹，递归获取其子文件
             if is_directory:
-                file_info['children'] = list_files_recursive_with_cache(webdav, f.name, config, script_config, size_threshold, visited)
+                file_info['children'] = list_files_recursive_with_cache(webdav, f.name, config, script_config, size_threshold, download_enabled, logger, local_tree, visited)
             else:
                 file_extension = os.path.splitext(f.name)[1].lower().lstrip('.')
 
                 # 根据不同格式执行不同操作
                 if file_extension in script_config['video_formats']:
-
                     logger.info(f"找到视频文件: {decoded_file_name}")
                     video_file_counter += 1  # 增加视频文件计数
                     create_strm_file(f.name, f.size, config, script_config['video_formats'], local_directory,
-                                     decoded_directory, size_threshold)
+                                     decoded_directory, size_threshold, logger, local_tree)
                     # 全量更新时，直接创建 strm 文件，传入文件大小和阈值
 
-
-
-                elif (
-                        file_extension in script_config['subtitle_formats'] or \
-                     file_extension in script_config['image_formats'] or \
-                     file_extension in script_config['metadata_formats']):
+                # 仅在下载启用时处理下载相关文件
+                elif download_enabled and (
+                        file_extension in script_config['subtitle_formats'] or
+                        file_extension in script_config['image_formats'] or
+                        file_extension in script_config['metadata_formats']):
                     logger.info(f"找到下载文件: {decoded_file_name}")
 
                     total_download_file_counter += 1  # 记录需要下载的文件总数
@@ -162,16 +160,12 @@ def list_files_recursive_with_cache(webdav, directory, config, script_config, si
         logger.info(f"Error listing files: {e}")
         return []
 
-
-
-
-
-def download_files_with_interval(min_interval, max_interval):
+def download_files_with_interval(min_interval, max_interval, logger):
     global download_file_counter, total_download_file_counter
     while not download_queue.empty():
         webdav, file_name, local_path, expected_size, config = download_queue.get()
         try:
-            download_file(webdav, file_name, local_path, expected_size, config)
+            download_file(webdav, file_name, local_path, expected_size, config, logger)
         finally:
             download_file_counter += 1
             logger.info(f"文件下载进度: {download_file_counter}/{total_download_file_counter}")
@@ -181,9 +175,7 @@ def download_files_with_interval(min_interval, max_interval):
         interval = random.randint(min_interval, max_interval)
         time.sleep(interval)
 
-
-
-def create_strm_file(file_name, file_size, config, video_formats, local_directory, directory, size_threshold):
+def create_strm_file(file_name, file_size, config, video_formats, local_directory, directory, size_threshold, logger, local_tree):
     global strm_file_counter, directory_strm_file_counter, existing_strm_file_counter
     size_threshold_bytes = size_threshold * (1024 * 1024)
 
@@ -197,7 +189,7 @@ def create_strm_file(file_name, file_size, config, video_formats, local_director
     # 如果视频文件大小小于用户设定的阈值，则跳过创建
     if file_size < size_threshold_bytes:
         decoded_name = unquote(file_name)
-        logger.info(f"跳过生成 .strm 文件: {decoded_name}（文件大小小于 {size_threshold } MB）")
+        logger.info(f"跳过生成 .strm 文件: {decoded_name}（文件大小小于 {size_threshold} MB）")
         return
 
     clean_file_name = file_name.replace('/dav', '')  # 去掉 /dav/ 前缀
@@ -208,11 +200,11 @@ def create_strm_file(file_name, file_size, config, video_formats, local_director
     strm_file_name = os.path.splitext(os.path.basename(decoded_file_name))[0] + ".strm"
     strm_file_path = os.path.join(local_directory, strm_file_name)
 
-    # 检查本地是否已存在 .strm 文件
-    if os.path.exists(strm_file_path):
+    # 检查本地是否已存在 .strm 文件（使用本地目录树）
+    relative_dir = os.path.relpath(local_directory, config['target_directory'])
+    if relative_dir in local_tree and strm_file_name in local_tree[relative_dir]:
         logger.info(f"跳过生成 .strm 文件: {strm_file_path}（本地已存在）")
         existing_strm_file_counter += 1  # 计数已存在的 .strm 文件
-
         return
 
     try:
@@ -227,13 +219,9 @@ def create_strm_file(file_name, file_size, config, video_formats, local_director
         directory_strm_file_counter[directory] += 1  # 更新子目录下的 strm 文件数量
     except Exception as e:
         logger.info(f"创建 .strm 文件时出错: {file_name}，错误: {e}")
-    pass
 
-
-# 下载文件并检查本地是否已存在
-def download_file(webdav, file_name, local_path, expected_size, config):
+def download_file(webdav, file_name, local_path, expected_size, config, logger):
     global download_file_counter, total_download_file_counter
-
 
     # 检查是否允许下载文件
     if config.get('download_enabled', 1) == 0:
@@ -275,47 +263,119 @@ def download_file(webdav, file_name, local_path, expected_size, config):
             os.remove(local_file_path)
     except Exception as e:
         logger.info(f"下载文件时出错: {file_name}，错误: {e}")
-    pass
 
-def process_with_cache(webdav, config, script_config, config_id, size_threshold):
+def get_jwt_token(url, username, password, logger):
+    api_url = f"{url}/api/auth/login"  # 动态构建 API 登录路径
+    payload = {
+        "username": username,
+        "password": password
+    }
+
+    try:
+        response = requests.post(api_url, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            token = data['data']['token']
+            return token
+        else:
+            logger.error(f"获取 JWT Token 时出错: {response.status_code}, {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"请求 JWT Token 时发生异常: {e}")
+        return None
+
+def refresh_webdav_directory(url, token, path, logger):
+    refresh_url = f"{url}/api/fs/list"  # 动态构建 API 刷新路径
+    headers = {
+        "Authorization": f"Bearer {token}"
+    }
+    payload = {
+        "path": path,
+        "refresh": True  # 强制刷新目录
+    }
+
+    try:
+        response = requests.post(refresh_url, headers=headers, json=payload)
+        if response.status_code == 200:
+            logger.info(f"WebDAV 目录 '{path}' 刷新成功。")
+        else:
+            logger.error(f"刷新 WebDAV 目录时出错: {response.status_code}, {response.text}")
+    except Exception as e:
+        logger.error(f"刷新 WebDAV 目录时发生异常: {e}")
+
+def process_with_cache(webdav, config, script_config, config_id, size_threshold, logger):
     global video_file_counter, strm_file_counter, download_file_counter, total_download_file_counter
 
-    cached_tree = load_cached_tree(config_id)
+    download_enabled = config.get('download_enabled', 1)
+
+    cached_tree = load_cached_tree(config_id, logger)
 
     root_directory = config['rootpath']
-    current_tree = list_files_recursive_with_cache(webdav, root_directory, config, script_config, size_threshold)
+
+    # 在增量更新前，使用 API 强制刷新目录
+    protocol = config.get('protocol')
+    host = config.get('host')
+    port = config.get('port')
+
+    if protocol and host and port:
+        url = f"{protocol}://{host}:{port}"
+        username = config.get('username')
+        password = config.get('password')
+
+        if username and password:
+            logger.info(f"正在尝试刷新 WebDAV 根目录: {root_directory}")
+            token = get_jwt_token(url, username, password, logger)
+            if token:
+                refresh_webdav_directory(url, token, root_directory, logger)
+            else:
+                logger.error("无法获取 JWT Token，跳过刷新目录。")
+        else:
+            logger.error("缺少用户名或密码，无法刷新 WebDAV 目录。")
+    else:
+        logger.error("缺少协议、主机或端口，无法构建 API URL。")
 
     if config.get('update_mode') == 'incremental':
         logger.info("正在执行增量更新...")
 
-        if cached_tree and compare_directory_trees(cached_tree, current_tree):
-            logger.info("本地目录树与云端一致，跳过更新。")
-            if config.get('download_enabled', 1) == 0:
-                logger.info("下载功能已禁用，程序即将退出。")
-                sys.exit(0)
-        else:
-            logger.info("目录树发生变化，进行增量更新。")
+        # 加载本地目录树
+        local_tree = build_local_directory_tree(config['target_directory'], logger)
 
-            save_tree_to_cache(current_tree, config_id)
+        if cached_tree:
+            # 比较目录树
+            if compare_directory_trees(cached_tree, current_tree_placeholder := list_files_recursive_with_cache(webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None)):
+                logger.info("本地目录树与云端一致，跳过更新。")
+                if not download_enabled:
+                    logger.info("下载功能已禁用，程序即将退出。")
+                    sys.exit(0)
+            else:
+                logger.info("目录树发生变化，进行增量更新。")
+                save_tree_to_cache(current_tree_placeholder, config_id, logger)
+        else:
+            logger.info("没有找到缓存的目录树，执行全量更新。")
+            current_tree = list_files_recursive_with_cache(webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None)
+            save_tree_to_cache(current_tree, config_id, logger)
 
     elif config.get('update_mode') == 'full':
         logger.info("正在执行全量更新...")
+        # 加载本地目录树
+        local_tree = build_local_directory_tree(config['target_directory'], logger)
+        current_tree = list_files_recursive_with_cache(webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None)
+        save_tree_to_cache(current_tree, config_id, logger)  # 保存全量更新后的目录树到缓存
 
-        save_tree_to_cache(current_tree, config_id)  # 保存全量更新后的目录树到缓存
     logger.info(f"总共创建了 {strm_file_counter} 个 .strm 文件")
     logger.info(f"总共发现了 {video_file_counter} 个视频文件")
-    logger.info(f"总共需要下载 {total_download_file_counter} 个文件")
 
-    if config.get('download_enabled', 1) == 0:
+    if download_enabled:
+        logger.info(f"总共需要下载 {total_download_file_counter} 个文件")
+    else:
         logger.info("下载功能已禁用，跳过所有下载任务。程序即将退出。")
         sys.exit(0)
 
     # 传递下载间隔范围（最小值和最大值）
     min_interval, max_interval = config['download_interval_range']
-    download_files_with_interval(min_interval, max_interval)
+    download_files_with_interval(min_interval, max_interval, logger)
 
     logger.info(f"总共下载了 {download_file_counter} 个文件")
-
 
 if __name__ == '__main__':
     db_handler = DBHandler()
@@ -360,7 +420,7 @@ if __name__ == '__main__':
 
         # 使用缓存策略处理文件，并传递 size_threshold
         try:
-            process_with_cache(webdav, config, script_config, config_id, script_config['size_threshold'])
+            process_with_cache(webdav, config, script_config, config_id, script_config['size_threshold'], logger)
         except Exception as e:
             logger.error(f"处理文件时发生错误: {e}")
             sys.exit(1)
@@ -372,4 +432,3 @@ if __name__ == '__main__':
 
     finally:
         db_handler.close()
-

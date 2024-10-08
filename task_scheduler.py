@@ -268,3 +268,24 @@ def parse_cron_time(cron_time):
         return 'custom', '', '自定义时间'
 
 
+def run_task_immediately(task_id):
+    # 获取所有任务
+    tasks = list_tasks_in_cron()
+
+    # 查找指定 task_id 对应的任务
+    task_to_run = next((task for task in tasks if task.get('task_id') == task_id), None)
+
+    if task_to_run:
+        # 获取任务命令
+        command = task_to_run.get('command')
+        if not command:
+            raise ValueError('找不到该任务的命令，无法运行。')
+
+        try:
+            # 使用 subprocess 来运行任务的命令
+            subprocess.Popen(command, shell=True)
+            print(f"任务 {task_id} 已立即运行。")
+        except Exception as e:
+            print(f"运行任务 {task_id} 时发生错误: {e}")
+    else:
+        raise ValueError(f"找不到 task_id 为 {task_id} 的任务。")

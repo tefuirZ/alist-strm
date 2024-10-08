@@ -3,9 +3,6 @@ import sys
 import json
 import random
 import time
-import requests
-import logging
-from urllib.parse import unquote
 from db_handler import DBHandler
 from logger import setup_logger
 import subprocess
@@ -118,28 +115,74 @@ class StrmValidator:
                     self.logger.debug(f"预期的 .strm 文件路径: {strm_file_path}")
         return expected_strm_set
 
+    def check_cache_file(self, cache_file, max_age_hours=24):
+        """
+        检查缓存文件是否过期，如果缓存文件存在且在max_age_hours内被修改过，则返回True。
+        如果缓存文件不存在或已过期，则返回False。
+        """
+        if os.path.exists(cache_file):
+            last_modified_time = os.path.getmtime(cache_file)
+            current_time = time.time()
+            # 计算缓存文件的年龄（秒），并将其转换为小时
+            cache_age_hours = (current_time - last_modified_time) / 3600
+            if cache_age_hours <= max_age_hours:
+                self.logger.info(f"缓存文件 {cache_file} 存在且未过期（{cache_age_hours:.2f}小时）")
+                return True
+            else:
+                self.logger.info(f"缓存文件 {cache_file} 已过期（{cache_age_hours:.2f}小时），将重新生成缓存")
+        else:
+            self.logger.warning(f"缓存文件 {cache_file} 不存在")
+
+        # 缓存文件不存在或已过期
+        return False
+
+    def rebuild_cache(self, config_id):
+        """
+        调用 main.py 重建缓存文件
+        """
+        self.logger.info("正在调用 main.py 重建缓存文件...")
+        try:
+            # 调用 main.py 重新生成缓存文件
+            result = subprocess.run(
+                ['python3', 'main.py', str(config_id)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            if result.returncode == 0:
+                self.logger.info(f"缓存文件重建成功: {result.stdout}")
+            else:
+                self.logger.error(f"缓存文件重建失败: {result.stderr}")
+        except Exception as e:
+            self.logger.error(f"调用 main.py 重建缓存时发生错误: {e}")
+
     def fast_scan(self, cached_tree, local_strm_files):
-        self.logger.info("开始执行快扫模式...")
+        # 修改为先检查缓存文件时间
+        cache_file = os.path.join('cache', f'webdav_directory_cache_{self.config_id}.json')
+        if not self.check_cache_file(cache_file):
+            # 如果缓存文件已过期或不存在，调用 main.py 重建缓存
+            self.rebuild_cache(self.config_id)
+            # 重新加载缓存文件
+            cached_tree = self.load_cached_tree()
+
+        if not cached_tree:
+            self.logger.warning("未加载到缓存树，快扫将视为所有本地 .strm 文件无效。")
+            invalid_files = local_strm_files
+        else:
+            invalid_files = self.fast_scan_logic(cached_tree, local_strm_files)
+
+        return invalid_files
+
+    def fast_scan_logic(self, cached_tree, local_strm_files):
+        # 原来的fast_scan逻辑分离到这个方法中
         expected_strm_files = self.build_expected_strm_set(cached_tree) if cached_tree else set()
         local_strm_files_set = set(local_strm_files)
 
         self.logger.debug(f"缓存中预期的 .strm 文件数量: {len(expected_strm_files)}")
         self.logger.debug(f"本地实际存在的 .strm 文件数量: {len(local_strm_files_set)}")
 
-        # 本地存在但预期中不存在的 .strm 文件
         invalid_locally_extra = local_strm_files_set - expected_strm_files
-
-        # 预期存在但本地不存在的 .strm 文件
         invalid_expected_missing = expected_strm_files - local_strm_files_set
-
-        self.logger.debug(f"本地存在但预期中不存在的 .strm 文件数量: {len(invalid_locally_extra)}")
-        self.logger.debug(f"预期存在但本地不存在的 .strm 文件数量: {len(invalid_expected_missing)}")
-
-        # 记录具体的无效文件路径
-        for f in invalid_locally_extra:
-            self.logger.debug(f"本地存在但预期中不存在的 .strm 文件: {f}")
-        for f in invalid_expected_missing:
-            self.logger.debug(f"预期存在但本地不存在的 .strm 文件: {f}")
 
         invalid_files = list(invalid_locally_extra) + list(invalid_expected_missing)
 

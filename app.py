@@ -11,7 +11,7 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from db_handler import DBHandler
 from logger import setup_logger
-from task_scheduler import add_tasks_to_cron, update_tasks_in_cron, delete_tasks_from_cron, list_tasks_in_cron, convert_to_cron_time
+from task_scheduler import add_tasks_to_cron, update_tasks_in_cron, delete_tasks_from_cron, list_tasks_in_cron, convert_to_cron_time, run_task_immediately
 
 
 app = Flask(__name__)
@@ -24,7 +24,7 @@ IMAGE_FOLDER = 'static/images'
 
 db_handler = DBHandler()
 
-local_version = "6.0.2"
+local_version = "6.0.3"
 
 
 
@@ -793,8 +793,8 @@ def bad_request_error(e):
     return render_template('400.html'), 400
 
 
-# 视图函数：其他页面
-# 视图函数：其他页面
+
+
 @app.route('/other', methods=['GET', 'POST'])
 @login_required  # 如果需要登录才能访问
 def other():
@@ -837,6 +837,43 @@ def other():
         return render_template('other.html',
                                script_params=script_params,
                                log_content=log_content)
+
+
+def run_task_immediately(task_id):
+    # 获取所有任务
+    tasks = list_tasks_in_cron()
+
+    # 查找指定 task_id 对应的任务
+    task_to_run = next((task for task in tasks if task.get('task_id') == task_id), None)
+
+    if task_to_run:
+        # 获取任务命令
+        command = task_to_run.get('command')
+        if not command:
+            raise ValueError('找不到该任务的命令，无法运行。')
+
+        try:
+            # 使用 subprocess 来运行任务的命令
+            subprocess.Popen(command, shell=True)
+            print(f"任务 {task_id} 已立即运行。")
+        except Exception as e:
+            print(f"运行任务 {task_id} 时发生错误: {e}")
+    else:
+        raise ValueError(f"找不到 task_id 为 {task_id} 的任务。")
+
+@app.route('/run_task_now/<task_id>', methods=['POST'])
+def run_task_now(task_id):
+    try:
+        # 调用立即运行任务的函数
+        run_task_immediately(task_id)
+        flash(f"任务 {task_id} 已成功运行！", 'success')
+    except Exception as e:
+        flash(f"运行任务 {task_id} 时出错: {e}", 'error')
+
+    return redirect(url_for('scheduled_tasks'))
+
+
+
 
 # 辅助函数：运行脚本
 def run_replace_domain_script(target_directory, old_domain, new_domain):

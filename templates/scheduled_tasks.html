@@ -22,7 +22,7 @@
         <tbody>
         {% for task in tasks %}
             <tr>
-                <td><input type="checkbox" class="task-checkbox" value="{{ task['task_id'] }}"></td>
+                <td><input type="checkbox" class="task-checkbox" name="selected_tasks" value="{{ task['task_id'] }}"></td>
                 <td>
                     {{ task['task_name'] }}
                     {% if task['config_id'] %}
@@ -48,12 +48,57 @@
                     <form action="{{ url_for('delete_task', task_id=task['task_id']) }}" method="POST" style="display:inline;">
                         <button type="submit" class="btn btn-danger btn-sm">删除</button>
                     </form>
+                    <!-- 立即运行按钮 -->
+                    <form action="{{ url_for('run_task_now', task_id=task['task_id']) }}" method="POST" style="display:inline;">
+                        <button type="submit" class="btn btn-success btn-sm">立即运行</button>
+                    </form>
                 </td>
             </tr>
         {% endfor %}
         </tbody>
     </table>
 
-    <!-- 添加 JavaScript 处理多选删除和全选功能 -->
-    <!-- （保持原有的 JavaScript 代码） -->
+    <script>
+        // 全选/取消全选的 JavaScript
+        document.getElementById('select-all').addEventListener('change', function() {
+            let checkboxes = document.querySelectorAll('.task-checkbox');
+            for (let checkbox of checkboxes) {
+                checkbox.checked = this.checked;
+            }
+        });
+
+        // 删除选中任务按钮
+        document.getElementById('delete-selected').addEventListener('click', function() {
+            let selectedTasks = [];
+            let checkboxes = document.querySelectorAll('.task-checkbox:checked');
+            for (let checkbox of checkboxes) {
+                selectedTasks.push(checkbox.value);
+            }
+
+            if (selectedTasks.length === 0) {
+                alert('请选择至少一个任务');
+                return;
+            }
+
+            if (confirm('确定要删除选中的任务吗？')) {
+                fetch('{{ url_for("delete_selected_tasks") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        task_ids: selectedTasks
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload(); // 成功后刷新页面
+                    } else {
+                        alert('删除任务时出错：' + data.error);
+                    }
+                });
+            }
+        });
+    </script>
 {% endblock %}
