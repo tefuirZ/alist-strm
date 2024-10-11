@@ -2,7 +2,7 @@
 {% block content %}
 <div class="container">
     <h1 class="mt-4">编辑配置</h1>
-    <form method="POST">
+    <form method="POST" id="editConfigForm">
         <div class="mb-3">
             <label for="config_name" class="form-label">配置名称</label>
             <input type="text" class="form-control" name="config_name" value="{{ config[0] }}" placeholder="请输入配置文件的别名，如：我的 Alist 配置" required>
@@ -29,7 +29,16 @@
         </div>
         <div class="mb-3">
             <label for="download_interval_range" class="form-label">下载文件时间间隔</label>
-            <input type="text" class="form-control" name="download_interval_range" value="{{ config[8] }}" placeholder="例如：1-5 或 2-5" required>
+            <input
+                type="text"
+                class="form-control"
+                name="download_interval_range"
+                value="{{ config[8] }}"
+                placeholder="例如：1-5 或 2-5"
+                pattern="^\d+-\d+$"
+                title="请输入格式为 'min-max'，例如 '1-5'"
+                required
+            >
             <small class="form-text text-muted">填入时间间隔范围，例如 1-5 或自定义的 2-5 秒。</small>
         </div>
         <div class="mb-3">
@@ -49,4 +58,37 @@
         <button type="submit" class="btn btn-primary">保存修改</button>
     </form>
 </div>
+
+<script>
+    document.getElementById('editConfigForm').addEventListener('submit', function(event) {
+        validateDownloadInterval(event);
+    });
+
+    function validateDownloadInterval(event) {
+        // 获取输入值
+        const intervalInput = document.querySelector('input[name="download_interval_range"]');
+        const intervalValue = intervalInput.value.trim();
+
+        // 使用正则表达式匹配
+        const regex = /^(\d+)-(\d+)$/;
+        const match = intervalValue.match(regex);
+
+        if (match) {
+            const min = parseInt(match[1], 10);
+            const max = parseInt(match[2], 10);
+
+            if (min > max) {
+                // 如果min大于max，阻止表单提交并显示错误
+                event.preventDefault();
+                alert("下载间隔的最小值不能大于最大值。请重新输入。");
+                intervalInput.focus();
+            }
+        } else {
+            // 如果格式不正确，阻止表单提交
+            event.preventDefault();
+            alert("下载间隔范围格式不正确。请使用 'min-max' 格式，例如 '1-5'。");
+            intervalInput.focus();
+        }
+    }
+</script>
 {% endblock %}

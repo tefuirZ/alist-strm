@@ -12,7 +12,9 @@
                 <li>设置 <a href="{{ url_for('scheduled_tasks') }}">定时任务</a></li>
                 <li>查看 <a href="{{ url_for('invalid_file_trees') }}">失效的STRM文件</a></li>
                 <li>调整 <a href="{{ url_for('settings') }}">脚本设置</a></li>
-             <li>阅读 <a href="https://www.tefuir0829.cn/" target="_blank">项目文档</a></li> <!-- 外部文档链接 -->
+                <li>阅读 <a href="https://www.tefuir0829.cn" target="_blank">作者博客查看教程</a></li> <!-- 外部文档链接 -->
+                <li>访问 <a href="https://github.com/tefuirZ/alist-strm" target="_blank">GitHub 仓库</a></li> <!-- GitHub 链接 -->
+                <li>查看 <a href="https://hub.docker.com/r/itefuir/alist-strm" target="_blank">Docker Hub 镜像</a></li> <!-- Docker Hub 链接 -->
             </ul>
         </div>
     </div>
@@ -23,7 +25,6 @@
         <!-- 示例卡片，您可以根据需要添加更多卡片 -->
         <div class="col-md-4 mb-4">
             <div class="card h-100">
-                <img src="{{ url_for('static', filename='images/project_intro1.png') }}" class="card-img-top" alt="项目简介1">
                 <div class="card-body">
                     <h5 class="card-title">批量创建strm文件</h5>
                     <p class="card-text">通过alist-webdav免挂载到本地进行批量创建strm文件、以及下载相关元数据文件</p>
@@ -32,7 +33,6 @@
         </div>
         <div class="col-md-4 mb-4">
             <div class="card h-100">
-                <img src="{{ url_for('static', filename='images/project_intro2.png') }}" class="card-img-top" alt="项目简介2">
                 <div class="card-body">
                     <h5 class="card-title">定时创建、校验strm文件</h5>
                     <p class="card-text">通过cron任务定时创建、校验strm文件是否有效</p>
@@ -41,14 +41,46 @@
         </div>
         <div class="col-md-4 mb-4">
             <div class="card h-100">
-                <img src="{{ url_for('static', filename='images/project_intro3.png') }}" class="card-img-top" alt="项目简介3">
                 <div class="card-body">
                     <h5 class="card-title">如果你觉得好用</h5>
                     <p class="card-text">如果你觉得本程序好用，可以帮我给个小星星吗，如果可以的话可以请作者喝杯咖啡不~</p>
                 </div>
             </div>
         </div>
+        <!-- 新增 GitHub 卡片 -->
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body d-flex">
+                    <div class="me-3">
+                        <i class="fab fa-github fa-3x"></i> <!-- GitHub 图标 -->
+                    </div>
+                    <div>
+                        <h5 class="card-title">GitHub 仓库</h5>
+                        <p class="card-text">查看项目源码、提交问题或贡献代码。欢迎大家的参与和反馈！</p>
+                        <p class="card-text">记得给我点小星星！记得给我点小星星！记得给我点小星星！</p>
+                        <a href="https://github.com/tefuirZ/alist-strm" target="_blank" class="btn btn-primary">访问 GitHub</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- 新增 Docker Hub 卡片 -->
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body d-flex">
+                    <div class="me-3">
+                        <i class="fab fa-docker fa-3x"></i> <!-- Docker Hub 图标 -->
+                    </div>
+                    <div>
+                        <h5 class="card-title">Docker Hub 镜像</h5>
+                        <p class="card-text">使用官方 Docker 镜像快速部署alist-strm。获取最新版本的镜像！</p>
+                        <p class="card-text">记得给我点小星星！记得给我点小星星！记得给我点小星星！</p>
+                        <a href="https://hub.docker.com/r/itefuir/alist-strm" target="_blank" class="btn btn-primary">访问 Docker Hub</a>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
     <!-- 项目简介卡片结束 -->
 </div>
+        <link href="{{ url_for('static', filename='css/all.min.css') }}" rel="stylesheet">
 {% endblock %}

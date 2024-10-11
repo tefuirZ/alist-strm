@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import random
 import glob
@@ -24,7 +25,7 @@ IMAGE_FOLDER = 'static/images'
 
 db_handler = DBHandler()
 
-local_version = "6.0.3"
+local_version = "6.0.4"
 
 
 
@@ -287,6 +288,11 @@ def edit_config(config_id):
             download_enabled = int(request.form.get('download_enabled', 0))  # 获取是否启用下载功能，默认0（禁用）
             update_mode = request.form['update_mode']  # 获取更新模式
 
+            # 前端验证已经做过，这里做后端验证
+            if not validate_download_interval_range(download_interval_range):
+                flash("下载间隔范围无效。请使用 'min-max' 格式，且 min <= max。", 'error')
+                return redirect(url_for('new_config'))
+
             # 自动为 rootpath 添加 /dav/ 前缀（如果没有）
             if not rootpath.startswith('/dav/'):
                 rootpath = '/dav/' + rootpath.lstrip('/')
@@ -339,6 +345,11 @@ def new_config():
             download_interval_range = request.form.get('download_interval_range', '1-3')  # 保持为字符串
             download_enabled = int(request.form.get('download_enabled', 0))  # 获取是否启用下载功能，默认0（禁用）
             update_mode = request.form['update_mode']  # 获取更新模式
+
+            # 前端验证已经做过，这里做后端验证
+            if not validate_download_interval_range(download_interval_range):
+                flash("下载间隔范围无效。请使用 'min-max' 格式，且 min <= max。", 'error')
+                return redirect(url_for('new_config'))
 
             # 自动为 rootpath 添加 /dav/ 前缀（如果没有）
             if not rootpath.startswith('/dav/'):
@@ -407,6 +418,14 @@ def delete_config(config_id):
 
     return redirect(url_for('configs'))
 
+
+def validate_download_interval_range(interval_range):
+    pattern = re.compile(r'^(\d+)-(\d+)$')
+    match = pattern.match(interval_range)
+    if not match:
+        return False
+    min_val, max_val = int(match.group(1)), int(match.group(2))
+    return min_val <= max_val
 
 
 # 设置页面
@@ -701,10 +720,10 @@ def view_logs(task_id):
 
 def restart_app():
     print("重启应用...")
-    # 重启当前应用
-
-    os.execv(sys.executable, ['python'] + sys.argv)
-
+    try:
+        subprocess.run(['supervisorctl', 'restart', 'flask'], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"重启失败: {e}")
 
 def download_and_extract(url, extract_to='.'):
     try:
@@ -927,6 +946,9 @@ def about():
 
     return render_template('about.html')
 
+
+
+@app.route('/update_version', methods=['POST'])
 def update_version():
     source = request.form.get('source', 'github')
     channel = request.form.get('channel', 'stable')
@@ -941,25 +963,52 @@ def update_version():
         success = download_and_extract(download_url)
 
         if success:
-            try:
-                # 运行 check_and_install.py 来检查和安装依赖
-                subprocess.check_call([sys.executable, "check_and_install.py"])
-
-                # 安装完成后，重启应用
-                return jsonify(message="新版本下载并安装成功！应用即将重启。")
-            except subprocess.CalledProcessError as e:
-                return jsonify(message=f"更新失败，依赖安装时出错：{e}")
+            return jsonify(message="新版本下载并安装成功！应用即将重启。")
         else:
             return jsonify(message="更新失败，下载或解压时出错。")
     else:
         return jsonify(message="当前已是最新版本，无需更新。")
 
 
+def check_and_apply_updates():
+    # 根据本地版本号选择通道
+    if "beta" in local_version:
+        channel = 'beta'
+    else:
+        channel = 'stable'
+
+    # 先检查国内源
+    source = 'domestic'
+
+    # 检查更新
+    update_info = check_for_updates(source, channel)
+
+    # 如果国内源检查失败，切换到 GitHub 源
+    if update_info.get("error"):
+        print(f"国内源检查更新失败，切换到 GitHub 源：{update_info['error']}")
+        source = 'github'
+        update_info = check_for_updates(source, channel)
+
+    # 如果有新版本，下载并更新
+    if update_info.get("new_version"):
+        download_url = update_info.get('download_url')
+
+        # 下载并解压新版本
+        success = download_and_extract(download_url)
+
+        if success:
+            print("新版本下载并安装成功！应用即将重启。")
+            restart_app()  # 重启应用
+        else:
+            print("更新失败，下载或解压时出错。")
+            sys.exit(1)  # 停止启动应用，等用户手动修复问题
 
 
 
 
 if __name__ == '__main__':
+    # 启动应用之前先检查更新
+    check_and_apply_updates()
     app.run(host="0.0.0.0", port=5000, debug=True)
 
 

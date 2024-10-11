@@ -58,43 +58,43 @@
 <!-- 引入Bootstrap JS -->
 <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
 
-<script>
-    // 处理检查更新按钮的点击事件
-    $('#checkUpdateButton').on('click', function() {
-        var source = $('#source').val();
-        var channel = $('#channel').val();
+    <script>
+        // 处理检查更新按钮的点击事件
+        $('#checkUpdateButton').on('click', function() {
+            var source = $('#source').val();
+            var channel = $('#channel').val();
 
-        // 使用 AJAX 提交表单，避免页面刷新
-        $.ajax({
-            url: '/about',
-            type: 'POST',
-            data: {
-                source: source,
-                channel: channel
-            },
-            success: function(response) {
-                // 根据响应显示结果
-                if (response.new_version) {
-                    var update = confirm('发现新版本: ' + response.latest_version + '\n更新日志: ' + response.changelog + '\n是否要更新？更新可能导致页面失联1分钟左右。请耐心等待后端重启，如长时间失联请联系作者。');
-                    if (update) {
-                        // 如果用户确认，发送更新请求
-                        $.post('/update_version', {
-                            source: source,
-                            channel: channel
-                        }, function(update_response) {
-                            alert(update_response.message);
-                        });
+            // 使用 AJAX 提交表单，避免页面刷新
+            $.ajax({
+                url: '/about',
+                type: 'POST',
+                data: {
+                    source: source,
+                    channel: channel
+                },
+                success: function(response) {
+                    // 根据响应显示结果
+                    if (response.new_version) {
+                        var update = confirm('发现新版本: ' + response.latest_version + '\n更新日志: ' + response.changelog + '\n是否要更新？更新可能导致页面失联1分钟左右。请耐心等待后端重启，如长时间失联请联系作者。');
+                        if (update) {
+                            // 如果用户确认，发送更新请求
+                            $.post('/update_version', {
+                                source: source,
+                                channel: channel
+                            }, function(update_response) {
+                                alert(update_response.message);
+                            });
+                        }
+                    } else if (response.error) {
+                        alert('错误: ' + response.error);
+                    } else {
+                        alert('已经是最新版本');
                     }
-                } else if (response.error) {
-                    alert('错误: ' + response.error);
-                } else {
-                    alert('已经是最新版本');
+                },
+                error: function(xhr, status, error) {
+                    alert('检查更新时出错: ' + error);
                 }
-            },
-            error: function(xhr, status, error) {
-                alert('检查更新时出错: ' + error);
-            }
+            });
         });
-    });
-</script>
+    </script>
 {% endblock %}

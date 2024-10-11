@@ -303,6 +303,7 @@ def refresh_webdav_directory(url, token, path, logger):
     except Exception as e:
         logger.error(f"刷新 WebDAV 目录时发生异常: {e}")
 
+
 def process_with_cache(webdav, config, script_config, config_id, size_threshold, logger):
     global video_file_counter, strm_file_counter, download_file_counter, total_download_file_counter
 
@@ -342,24 +343,31 @@ def process_with_cache(webdav, config, script_config, config_id, size_threshold,
 
         if cached_tree:
             # 比较目录树
-            if compare_directory_trees(cached_tree, current_tree_placeholder := list_files_recursive_with_cache(webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None)):
+            current_tree = list_files_recursive_with_cache(
+                webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None
+            )
+            if compare_directory_trees(cached_tree, current_tree):
                 logger.info("本地目录树与云端一致，跳过更新。")
                 if not download_enabled:
                     logger.info("下载功能已禁用，程序即将退出。")
                     sys.exit(0)
             else:
                 logger.info("目录树发生变化，进行增量更新。")
-                save_tree_to_cache(current_tree_placeholder, config_id, logger)
+                save_tree_to_cache(current_tree, config_id, logger)
         else:
             logger.info("没有找到缓存的目录树，执行全量更新。")
-            current_tree = list_files_recursive_with_cache(webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None)
+            current_tree = list_files_recursive_with_cache(
+                webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None
+            )
             save_tree_to_cache(current_tree, config_id, logger)
 
     elif config.get('update_mode') == 'full':
         logger.info("正在执行全量更新...")
         # 加载本地目录树
         local_tree = build_local_directory_tree(config['target_directory'], logger)
-        current_tree = list_files_recursive_with_cache(webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None)
+        current_tree = list_files_recursive_with_cache(
+            webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None
+        )
         save_tree_to_cache(current_tree, config_id, logger)  # 保存全量更新后的目录树到缓存
 
     logger.info(f"总共创建了 {strm_file_counter} 个 .strm 文件")
@@ -376,6 +384,7 @@ def process_with_cache(webdav, config, script_config, config_id, size_threshold,
     download_files_with_interval(min_interval, max_interval, logger)
 
     logger.info(f"总共下载了 {download_file_counter} 个文件")
+
 
 if __name__ == '__main__':
     db_handler = DBHandler()
@@ -401,7 +410,8 @@ if __name__ == '__main__':
 
         # 输出配置信息到日志
         logger.info(
-            f"正在使用配置ID: {config_id} 运行，目标地址: {config['protocol']}://{config['host']}:{config['port']}")
+            f"正在使用配置ID: {config_id} 运行，目标地址: {config['protocol']}://{config['host']}:{config['port']}"
+        )
 
         # 获取视频、图片等格式和大小阈值
         script_config = db_handler.get_script_config()
@@ -432,3 +442,4 @@ if __name__ == '__main__':
 
     finally:
         db_handler.close()
+
