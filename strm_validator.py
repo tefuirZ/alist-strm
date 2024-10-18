@@ -8,10 +8,8 @@ from logger import setup_logger
 import subprocess
 import re  # 导入正则表达式模块
 
-
 # 定义无效目录树存储的根目录
 INVALID_FILE_TREES_DIR = 'invalid_file_trees'
-
 
 class StrmValidator:
     def __init__(self, db_handler, scan_mode, config_id, task_id=None):
@@ -91,26 +89,39 @@ class StrmValidator:
 
     def build_expected_strm_set(self, file_tree, current_path=''):
         expected_strm_set = set()
+        size_threshold_mb = self.script_config.get('size_threshold', 100)  # 获取大小阈值，默认100MB
+        size_threshold_bytes = size_threshold_mb * 1024 * 1024  # 转换为字节
+
         for file in file_tree:
             file_name = file['name']
+            file_size = file.get('size', 0)  # 假设缓存中包含文件大小字段
+            is_directory = file.get('is_directory', False)  # 获取是否为目录的标识
+
             if not file_name.startswith(self.remote_base):
                 self.logger.warning(f"文件路径不以远程根路径开头: {file_name}")
                 continue
-            # 获取相对路径
-            relative_path = os.path.relpath(file_name, self.remote_base)
-            if file['is_directory']:
+
+            # 如果是目录，递归处理子文件
+            if is_directory:
                 children = file.get('children', [])
                 if children:
-                    expected_strm_set.update(self.build_expected_strm_set(children, relative_path))
+                    expected_strm_set.update(self.build_expected_strm_set(children, current_path))
             else:
+                # 文件大小小于阈值，跳过该文件
+                if file_size < size_threshold_bytes:
+                    self.logger.info(f"跳过文件（大小小于阈值 {size_threshold_mb}MB）: {file_name}, 大小: {file_size / (1024 * 1024):.2f}MB")
+                    continue
+
                 file_extension = os.path.splitext(file_name)[1].lower().lstrip('.')
                 if file_extension in self.video_formats:
                     # 生成对应的 .strm 文件路径
+                    relative_path = os.path.relpath(file_name, self.remote_base)
                     video_relative_dir = os.path.dirname(relative_path)
                     video_base_name = os.path.splitext(os.path.basename(relative_path))[0]
                     strm_file_name = f"{video_base_name}.strm"
                     strm_file_path = os.path.abspath(
-                        os.path.join(self.target_directory, video_relative_dir, strm_file_name))
+                        os.path.join(self.target_directory, video_relative_dir, strm_file_name)
+                    )
                     expected_strm_set.add(strm_file_path)
                     self.logger.debug(f"预期的 .strm 文件路径: {strm_file_path}")
         return expected_strm_set
@@ -144,7 +155,7 @@ class StrmValidator:
         try:
             # 调用 main.py 重新生成缓存文件
             result = subprocess.run(
-                ['python3', 'main.py', str(config_id)],
+                ['/usr/local/bin/python3.9', 'main.py', str(config_id)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 universal_newlines=True
@@ -174,19 +185,33 @@ class StrmValidator:
         return invalid_files
 
     def fast_scan_logic(self, cached_tree, local_strm_files):
-        # 原来的fast_scan逻辑分离到这个方法中
+        # 构建期望的 .strm 文件集
         expected_strm_files = self.build_expected_strm_set(cached_tree) if cached_tree else set()
         local_strm_files_set = set(local_strm_files)
 
-        self.logger.debug(f"缓存中预期的 .strm 文件数量: {len(expected_strm_files)}")
-        self.logger.debug(f"本地实际存在的 .strm 文件数量: {len(local_strm_files_set)}")
+        # 额外存在的本地 .strm 文件（本地有但缓存中没有）
+        extra_local_files = local_strm_files_set - expected_strm_files
+        # 缺失的缓存文件（缓存中有但本地没有）
+        missing_files_in_local = expected_strm_files - local_strm_files_set
 
-        invalid_locally_extra = local_strm_files_set - expected_strm_files
-        invalid_expected_missing = expected_strm_files - local_strm_files_set
+        # 将多余和缺失的文件合并为"无效文件"
+        invalid_files = list(extra_local_files) + list(missing_files_in_local)
 
-        invalid_files = list(invalid_locally_extra) + list(invalid_expected_missing)
+        # 根据具体情况，优化日志输出，避免误解
+        if extra_local_files:
+            self.logger.info(f"发现 {len(extra_local_files)} 个本地多余的 .strm 文件（本地存在但缓存中没有）：")
+            for file in extra_local_files:
+                self.logger.debug(f"多余的文件: {file}")
 
-        self.logger.info(f"快扫发现 {len(invalid_files)} 个无效的 .strm 文件")
+        if missing_files_in_local:
+            self.logger.info(f"发现 {len(missing_files_in_local)} 个缓存中存在但本地缺失的 .strm 文件：")
+            for file in missing_files_in_local:
+                self.logger.debug(f"缺失的文件: {file}")
+
+        # 输出最终汇总
+        total_invalid_files = len(invalid_files)
+        self.logger.info(f"总共发现 {total_invalid_files} 个无效的 .strm 文件（本地多余+缓存缺失）")
+
         return invalid_files
 
     def slow_scan(self, local_strm_files):
@@ -324,7 +349,6 @@ class StrmValidator:
 
         self.logger.info(f"验证完成。有效的 .strm 文件数量: {valid_count}，无效的 .strm 文件数量: {invalid_count}")
 
-
 def main():
     if len(sys.argv) < 3 or len(sys.argv) > 4:
         print("用法: python strm_validator.py <config_id> <scan_mode> [task_id]")
@@ -357,7 +381,6 @@ def main():
     finally:
         # 关闭数据库连接
         db_handler.close()
-
 
 if __name__ == "__main__":
     main()

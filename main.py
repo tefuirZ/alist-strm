@@ -20,6 +20,8 @@ existing_strm_file_counter = 0  # 已存在的 .strm 文件数量
 download_queue = Queue()  # 下载队列
 found_video_files = set()
 
+
+
 # 连接WebDAV服务器
 def connect_webdav(config):
     return easywebdav.connect(
@@ -76,19 +78,25 @@ def compare_directory_trees(cached_tree, current_tree):
             return False
     return True
 
-def build_local_directory_tree(local_root, logger):
+def build_local_directory_tree(local_root, script_config, logger):
     """
-    构建本地目录树，包括所有 .strm 文件的信息。
+    构建本地目录树，包括所有 .strm 文件和其他需要下载的元数据文件的信息。
     """
     local_tree = {}
     for root, dirs, files in os.walk(local_root):
         relative_root = os.path.relpath(root, local_root)
         local_tree[relative_root] = set()
         for file in files:
-            if file.lower().endswith('.strm'):
+            # 记录 .strm 文件和其他需要下载的文件（字幕、图片、元数据等）
+            file_extension = os.path.splitext(file)[1].lower().lstrip('.')
+            if file.lower().endswith('.strm') or \
+               file_extension in script_config['subtitle_formats'] or \
+               file_extension in script_config['image_formats'] or \
+               file_extension in script_config['metadata_formats']:
                 local_tree[relative_root].add(file)
-    logger.info("本地目录树已加载。")
+    logger.info("本地目录树已加载，包括 .strm 文件和需要下载的文件。")
     return local_tree
+
 
 def list_files_recursive_with_cache(webdav, directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None):
     global video_file_counter, strm_file_counter, directory_strm_file_counter, total_download_file_counter
@@ -113,19 +121,24 @@ def list_files_recursive_with_cache(webdav, directory, config, script_config, si
         local_directory = os.path.join(config['target_directory'], local_relative_path)
         os.makedirs(local_directory, exist_ok=True)  # 确保本地目录存在
 
+        try:
+            os.chmod(local_directory, 0o777)
+            logger.info(f"目录权限已设置为 777: {local_directory}")
+        except Exception as e:
+            logger.error(f"设置目录权限时出错: {e}")
+
         # 初始化该目录的 strm 文件计数器
         directory_strm_file_counter[decoded_directory] = 0
 
         for f in files:
             decoded_file_name = unquote(f.name)
-            decoded_name = unquote(f.name)  # 解码文件或文件夹名称
             is_directory = f.name.endswith('/')
             file_info = {
-                'name': decoded_name,  # 使用解码后的名称
+                'name': decoded_file_name,
                 'size': f.size,
                 'modified': f.mtime,
                 'is_directory': is_directory,
-                'children': [] if is_directory else None  # 如果是文件夹，初始化children为空列表
+                'children': [] if is_directory else None
             }
 
             # 如果是文件夹，递归获取其子文件
@@ -140,15 +153,17 @@ def list_files_recursive_with_cache(webdav, directory, config, script_config, si
                     video_file_counter += 1  # 增加视频文件计数
                     create_strm_file(f.name, f.size, config, script_config['video_formats'], local_directory,
                                      decoded_directory, size_threshold, logger, local_tree)
-                    # 全量更新时，直接创建 strm 文件，传入文件大小和阈值
-
-                # 仅在下载启用时处理下载相关文件
+                # 检查本地目录树中是否已经存在文件，如果存在则跳过
                 elif download_enabled and (
                         file_extension in script_config['subtitle_formats'] or
                         file_extension in script_config['image_formats'] or
                         file_extension in script_config['metadata_formats']):
-                    logger.info(f"找到下载文件: {decoded_file_name}")
+                    relative_dir = os.path.relpath(local_directory, config['target_directory'])
+                    if relative_dir in local_tree and os.path.basename(decoded_file_name) in local_tree[relative_dir]:
+                        logger.info(f"跳过文件下载: {decoded_file_name}（本地已存在）")
+                        continue
 
+                    logger.info(f"找到需要下载的文件: {decoded_file_name}")
                     total_download_file_counter += 1  # 记录需要下载的文件总数
                     # 将下载任务加入队列（无需创建线程）
                     download_queue.put((webdav, f.name, local_directory, f.size, config))
@@ -159,6 +174,8 @@ def list_files_recursive_with_cache(webdav, directory, config, script_config, si
     except Exception as e:
         logger.info(f"Error listing files: {e}")
         return []
+
+
 
 def download_files_with_interval(min_interval, max_interval, logger):
     global download_file_counter, total_download_file_counter
@@ -214,6 +231,10 @@ def create_strm_file(file_name, file_size, config, video_formats, local_director
             decoded_name = unquote(strm_file_path)
         logger.info(f".strm 文件已创建: {decoded_name}")
 
+        # 设置文件权限为 777
+        os.chmod(strm_file_path, 0o777)
+        logger.info(f"文件权限已设置为 777: {strm_file_path}")
+
         # 更新计数器
         strm_file_counter += 1
         directory_strm_file_counter[directory] += 1  # 更新子目录下的 strm 文件数量
@@ -249,6 +270,9 @@ def download_file(webdav, file_name, local_path, expected_size, config, logger):
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
             logger.info(f"文件下载成功: {local_file_path}")
+
+            os.chmod(local_file_path, 0o777)
+            logger.info(f"文件权限已设置为 777: {local_file_path}")
         else:
             logger.info(f"下载失败: {file_name}，状态码: {response.status_code}")
 
@@ -335,14 +359,13 @@ def process_with_cache(webdav, config, script_config, config_id, size_threshold,
     else:
         logger.error("缺少协议、主机或端口，无法构建 API URL。")
 
+    # 加载本地目录树（增量更新和全量更新都需要使用）
+    local_tree = build_local_directory_tree(config['target_directory'], script_config, logger)
+
     if config.get('update_mode') == 'incremental':
         logger.info("正在执行增量更新...")
 
-        # 加载本地目录树
-        local_tree = build_local_directory_tree(config['target_directory'], logger)
-
         if cached_tree:
-            # 比较目录树
             current_tree = list_files_recursive_with_cache(
                 webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None
             )
@@ -363,8 +386,8 @@ def process_with_cache(webdav, config, script_config, config_id, size_threshold,
 
     elif config.get('update_mode') == 'full':
         logger.info("正在执行全量更新...")
-        # 加载本地目录树
-        local_tree = build_local_directory_tree(config['target_directory'], logger)
+
+        # 在全量更新时，同样需要检查本地文件，快速跳过已经存在的文件
         current_tree = list_files_recursive_with_cache(
             webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None
         )
@@ -384,6 +407,7 @@ def process_with_cache(webdav, config, script_config, config_id, size_threshold,
     download_files_with_interval(min_interval, max_interval, logger)
 
     logger.info(f"总共下载了 {download_file_counter} 个文件")
+
 
 
 if __name__ == '__main__':

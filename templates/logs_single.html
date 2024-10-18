@@ -14,6 +14,20 @@
         {{ log_content | safe }}
     </div>
 
+    <!-- 分页按钮 -->
+    <div class="d-flex justify-content-between mt-3">
+        <a href="{{ url_for('logs', config_id=config_id, page=1) }}" class="btn btn-secondary btn-sm">第1页</a>
+        <a href="{{ url_for('logs', config_id=config_id, page=page-1) }}" class="btn btn-secondary btn-sm {{ 'disabled' if page == 1 else '' }}">上一页</a>
+
+        <form class="d-inline-block" action="{{ url_for('logs', config_id=config_id) }}" method="get">
+            <input type="number" name="page" value="{{ page }}" min="1" max="{{ total_pages }}" class="form-control d-inline-block" style="width: 60px;">
+            <button type="submit" class="btn btn-primary btn-sm">跳转</button>
+        </form>
+
+        <a href="{{ url_for('logs', config_id=config_id, page=page+1) }}" class="btn btn-secondary btn-sm {{ 'disabled' if page == total_pages else '' }}">下一页</a>
+        <a href="{{ url_for('logs', config_id=config_id, page=total_pages) }}" class="btn btn-secondary btn-sm">最后一页</a>
+    </div>
+
     <!-- 滑到底部按钮，右下角定位 -->
     <button id="scroll-button" class="btn btn-secondary btn-sm" style="position: fixed; bottom: 10px; right: 10px;">
         滑到底部

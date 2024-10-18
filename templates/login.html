@@ -5,7 +5,7 @@
     <title>登录</title>
     <!-- 引入Bootstrap CSS -->
     <link href="{{ url_for('static', filename='css/bootstrap.min.css') }}" rel="stylesheet">
-      <link rel="icon" href="{{ url_for('static', filename='ico.svg') }}" type="image/x-icon">
+    <link rel="icon" href="{{ url_for('static', filename='ico.svg') }}" type="image/x-icon">
     <style>
         body {
             background-image: url('/random_image');
@@ -24,7 +24,7 @@
             top: 38px;
             color: #999;
         }
-                /* 添加以下样式 */
+        /* 添加以下样式 */
         .version {
             color: #6c757d;
             padding: 10px;
@@ -73,20 +73,18 @@
                 </div>
                 <button type="submit" class="btn btn-primary w-100">登录</button>
                 <div class="text-center mt-3">
-                    <!-- 提示文字 -->
-                    <p>忘记密码？请联系管理员以重置密码。</p>
+                    <!-- 忘记密码链接 -->
+                    <p><a href="{{ url_for('forgot_password') }}">忘记密码？</a></p>
                 </div>
             </form>
         </div>
     </div>
 
-
-
     <div class="version">
-    <p>项目名称：<strong>alist-strm</strong></p>
-    <p>作者：<strong><a href="https://www.tefuir0829.cn" target="_blank">tefuir</a></strong></p>
-    <p>版本：{{ g.local_version }}</p>
-</div>
+        <p>项目名称：<strong>alist-strm</strong></p>
+        <p>作者：<strong><a href="https://www.tefuir0829.cn" target="_blank">tefuir</a></strong></p>
+        <p>版本：{{ g.local_version }}</p>
+    </div>
     <!-- 引入Bootstrap JS -->
     <script src="{{ url_for('static', filename='js/bootstrap.bundle.min.js') }}"></script>
     <script>

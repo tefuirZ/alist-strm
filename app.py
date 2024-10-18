@@ -25,18 +25,23 @@ IMAGE_FOLDER = 'static/images'
 
 db_handler = DBHandler()
 
-local_version = "6.0.4"
+local_version = "6.0.5"
 
 
 
-logger, log_file = setup_logger('app')
+
+CRON_BACKUP_FILE = "/config/cron.bak"
+ENV_FILE = "/config/app.env"
+
+
+
 
 
 
 @app.before_request
 def check_user_config():
     # 跳过以下端点的检查
-    if request.endpoint in ['login', 'register', 'static', 'random_image']:
+    if request.endpoint in ['login', 'register', 'static', 'random_image', 'forgot_password']:
         return
 
     # 确保 user_config 表中有用户名和密码
@@ -472,39 +477,55 @@ def settings():
     return render_template('settings.html', script_config=script_config)
 
 
-
-
-
 @app.route('/logs/<int:config_id>')
 def logs(config_id):
     log_dir = os.path.join(os.getcwd(), 'logs')
 
-    # 获取指定config_id的所有日志文件（以config_id为前缀）
+    # 获取指定 config_id 的所有日志文件（以 config_id 为前缀）
     log_files = [f for f in os.listdir(log_dir) if f.startswith(f'config_{config_id}') and f.endswith('.log')]
 
     if not log_files:
-        # 如果没有找到相关日志文件，返回404错误
+        # 如果没有找到相关日志文件，返回 404 错误
         abort(404, description=f"没有找到与配置 ID {config_id} 相关的日志文件")
 
-    # 按文件修改时间倒序排列，获取最新的日志文件
+    # 按修改时间倒序排列，获取最新的日志文件
     latest_log_file = max(log_files, key=lambda f: os.path.getmtime(os.path.join(log_dir, f)))
     log_file_path = os.path.join(log_dir, latest_log_file)
 
+    # 分页参数
+    page = int(request.args.get('page', 1))  # 获取当前页码，默认为第一页
+    per_page = 100  # 每页显示100行日志
+    start = (page - 1) * per_page
+    end = start + per_page
+
     # 读取日志文件并按行倒序排列
     with open(log_file_path, 'r', encoding='utf-8') as log_file:
-        log_content = log_file.readlines()
-        log_content.reverse()  # 倒序排列日志行
+        log_lines = log_file.readlines()
 
-    # 将倒序后的日志内容转换成字符串，确保每行都以 <br> 分隔
-    log_content = '<br>'.join(log_content)
+    # 计算总页数
+    total_lines = len(log_lines)
+    total_pages = (total_lines // per_page) + (1 if total_lines % per_page > 0 else 0)
 
-    # 渲染日志页面并显示日志内容
-    return render_template('logs_single.html', log_content=log_content, config_id=config_id)
+    # 确保页码合法
+    if page < 1:
+        page = 1
+    elif page > total_pages:
+        page = total_pages
 
+    # 获取当前页的日志内容，并反转顺序（最新的日志行在顶部）
+    current_page_lines = log_lines[start:end][::-1]
 
+    # 将当前页面的日志行转换成字符串，确保每行用 <br> 换行
+    log_content = '<br>'.join(current_page_lines)
 
-
-
+    # 渲染模板并传递分页信息
+    return render_template(
+        'logs_single.html',
+        log_content=log_content,
+        config_id=config_id,
+        page=page,
+        total_pages=total_pages
+    )
 
 
 # 定义函数来运行 main.py
@@ -970,6 +991,55 @@ def update_version():
         return jsonify(message="当前已是最新版本，无需更新。")
 
 
+# 在您的 Flask 应用中，确保已经导入了必要的模块
+
+
+# 修改 forgot_password 路由
+@app.route('/forgot_password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        security_code = request.form['security_code']
+        new_password = request.form['new_password']
+        confirm_password = request.form['confirm_password']
+
+        # 获取安全码，默认为 'alist-strm'
+        stored_security_code = os.getenv('SECURITY_CODE', 'alist-strm')
+        if os.path.exists(ENV_FILE):
+            with open(ENV_FILE, 'r') as f:
+                for line in f:
+                    if line.startswith('SECURITY_CODE='):
+                        stored_security_code = line.split('=')[1].strip()
+
+        # 验证安全码
+        if stored_security_code != security_code:
+            flash('安全码不正确', 'error')
+            return redirect(url_for('forgot_password'))
+
+        # 验证密码
+        if new_password != confirm_password:
+            flash('两次输入的密码不一致', 'error')
+            return redirect(url_for('forgot_password'))
+
+        # 获取存储的用户名
+        stored_username, _ = db_handler.get_user_credentials()
+
+        # 更新密码哈希
+        new_password_hash = generate_password_hash(new_password)
+        db_handler.set_user_credentials(username=stored_username, password_hash=new_password_hash)
+
+        # 将用户名存储在会话中
+        session['reset_username'] = stored_username
+
+        # 重定向到同一页面，以便显示提示框
+        return redirect(url_for('forgot_password'))
+
+    else:
+        # 处理 GET 请求，获取并弹出用户名
+        reset_username = session.pop('reset_username', None)
+        return render_template('forgot_password.html', reset_username=reset_username)
+
+
+
 def check_and_apply_updates():
     # 根据本地版本号选择通道
     if "beta" in local_version:
@@ -1006,10 +1076,104 @@ def check_and_apply_updates():
 
 
 
+def sync_cron_with_backup():
+    """同步 crontab 与备份文件"""
+    if os.path.exists(CRON_BACKUP_FILE):
+        with open(CRON_BACKUP_FILE, 'r') as f:
+            backup_cron_jobs = f.read().strip()
+        current_cron_jobs = subprocess.run(['crontab', '-l'], stdout=subprocess.PIPE, text=True).stdout.strip()
+        if backup_cron_jobs != current_cron_jobs:
+            subprocess.run(f'(echo "{backup_cron_jobs}") | crontab -', shell=True)
+            print("Cron tasks synchronized with backup.")
+    else:
+        print("Backup file not found, skipping synchronization.")
+
+import os
+
+ENV_FILE = '/config/app.env'
+
+def ensure_env_file():
+    """确保 app.env 存在并同步环境变量，如果没有安全码和端口则自动填入默认值"""
+    default_port = '5000'
+    default_security_code = 'alist-strm'
+
+    # 创建 /config 目录（如果不存在）
+    config_dir = '/config'
+    if not os.path.exists(config_dir):
+        os.makedirs(config_dir)
+        logger.info(f"创建了目录: {config_dir}")
+
+    # 从环境变量获取端口和安全码
+    port = os.getenv('WEB_PORT', default_port)  # 默认端口5000
+    security_code = os.getenv('SECURITY_CODE', default_security_code)  # 默认安全码 'alist-strm'
+
+
+
+    env_file = os.path.join(config_dir, 'app.env')
+
+    # 检查是否创建了 app.env 文件
+    if not os.path.exists(env_file):
+        logger.info(f"正在创建 {env_file} 文件")
+        with open(env_file, 'w') as f:
+            f.write(f"WEB_PORT={port}\n")
+            f.write(f"SECURITY_CODE={security_code}\n")
+        logger.info(f"成功创建 {env_file} 文件")
+    else:
+        logger.info(f"{env_file} 文件已存在，检查内容")
+
+        # 如果 app.env 存在，检查并写入默认值（如果缺少）
+        lines = []
+        found_port = False
+        found_security_code = False
+        found_host_uid = False
+        found_host_gid = False
+
+        with open(env_file, 'r') as f:
+            lines = f.readlines()
+
+        # 检查是否有安全码、端口、UID 和 GID 的定义
+        for line in lines:
+            if line.startswith('WEB_PORT='):
+                found_port = True
+            if line.startswith('SECURITY_CODE='):
+                found_security_code = True
+
+
+        # 如果没有端口和安全码，则补充默认值
+        if not found_port:
+            lines.append(f"WEB_PORT={port}\n")
+            logger.info(f"添加缺失的 WEB_PORT={port}")
+        if not found_security_code:
+            lines.append(f"SECURITY_CODE={security_code}\n")
+            logger.info(f"添加缺失的 SECURITY_CODE={security_code}")
+
+        # 将更新的内容写回到 app.env 文件
+        with open(env_file, 'w') as f:
+            f.writelines(lines)
+        logger.info(f"{env_file} 文件内容已更新")
+
+
+
+def load_port_from_env():
+    """从环境变量或 app.env 中加载端口"""
+    if os.path.exists(ENV_FILE):
+        with open(ENV_FILE, 'r') as f:
+            for line in f:
+                if line.startswith('WEB_PORT='):
+                    return int(line.split('=')[1].strip())
+    return 5000  # 如果未找到，则返回默认端口
+
+
+
 if __name__ == '__main__':
+    logger, log_file = setup_logger('app')
     # 启动应用之前先检查更新
     check_and_apply_updates()
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    sync_cron_with_backup()
+    ensure_env_file()
+    port = load_port_from_env()
+    app.run(host="0.0.0.0", port=port, debug=True)
+
 
 
 
