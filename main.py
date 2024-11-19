@@ -98,9 +98,10 @@ def build_local_directory_tree(local_root, script_config, logger):
     return local_tree
 
 
-def list_files_recursive_with_cache(webdav, directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None):
+def list_files_recursive_with_cache(webdav, directory, config, script_config, size_threshold, download_enabled, logger, local_tree, min_interval, max_interval, visited=None):
     global video_file_counter, strm_file_counter, directory_strm_file_counter, total_download_file_counter
     decoded_directory = unquote(directory)
+    interval = random.randint(min_interval, max_interval)
 
     if visited is None:
         visited = set()
@@ -143,10 +144,11 @@ def list_files_recursive_with_cache(webdav, directory, config, script_config, si
 
             # 如果是文件夹，递归获取其子文件
             if is_directory:
-                file_info['children'] = list_files_recursive_with_cache(webdav, f.name, config, script_config, size_threshold, download_enabled, logger, local_tree, visited)
+                file_info['children'] = list_files_recursive_with_cache(webdav, f.name, config, script_config, size_threshold, download_enabled, logger, local_tree, min_interval, max_interval, visited)
+                time.sleep(interval)
             else:
                 file_extension = os.path.splitext(f.name)[1].lower().lstrip('.')
-
+                time.sleep(interval)
                 # 根据不同格式执行不同操作
                 if file_extension in script_config['video_formats']:
                     logger.info(f"找到视频文件: {decoded_file_name}")
@@ -328,7 +330,7 @@ def refresh_webdav_directory(url, token, path, logger):
         logger.error(f"刷新 WebDAV 目录时发生异常: {e}")
 
 
-def process_with_cache(webdav, config, script_config, config_id, size_threshold, logger):
+def process_with_cache(webdav, config, script_config, config_id, size_threshold, logger, min_interval, max_interval):
     global video_file_counter, strm_file_counter, download_file_counter, total_download_file_counter
 
     download_enabled = config.get('download_enabled', 1)
@@ -355,7 +357,7 @@ def process_with_cache(webdav, config, script_config, config_id, size_threshold,
             else:
                 logger.error("无法获取 JWT Token，跳过刷新目录。")
         else:
-            logger.error("缺少用户名或密码，无法刷新 WebDAV 目录。")
+            logger.error("缺少token，无法刷新 WebDAV 目录。")
     else:
         logger.error("缺少协议、主机或端口，无法构建 API URL。")
 
@@ -367,7 +369,7 @@ def process_with_cache(webdav, config, script_config, config_id, size_threshold,
 
         if cached_tree:
             current_tree = list_files_recursive_with_cache(
-                webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None
+                webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree,  min_interval, max_interval, visited=None
             )
             if compare_directory_trees(cached_tree, current_tree):
                 logger.info("本地目录树与云端一致，跳过更新。")
@@ -380,7 +382,7 @@ def process_with_cache(webdav, config, script_config, config_id, size_threshold,
         else:
             logger.info("没有找到缓存的目录树，执行全量更新。")
             current_tree = list_files_recursive_with_cache(
-                webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None
+                webdav, root_directory, config, script_config, size_threshold, download_enabled, logger,  min_interval, max_interval, local_tree, visited=None
             )
             save_tree_to_cache(current_tree, config_id, logger)
 
@@ -389,7 +391,7 @@ def process_with_cache(webdav, config, script_config, config_id, size_threshold,
 
         # 在全量更新时，同样需要检查本地文件，快速跳过已经存在的文件
         current_tree = list_files_recursive_with_cache(
-            webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, local_tree, visited=None
+            webdav, root_directory, config, script_config, size_threshold, download_enabled, logger, min_interval, max_interval, local_tree, visited=None
         )
         save_tree_to_cache(current_tree, config_id, logger)  # 保存全量更新后的目录树到缓存
 
