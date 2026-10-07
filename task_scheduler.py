@@ -76,12 +76,31 @@ def list_tasks_in_cron():
     return program_managed_tasks
 
 
+# task_name and config_id end up inside the cron command/comment that
+# update_crontab() hands to crontab. Reject anything that could add a
+# newline (a new, attacker-controlled cron line) or break out of the
+# plain integer slot a config_id is expected to fill.
+def _validate_config_id(config_id):
+    config_id = str(config_id)
+    if not config_id.isdigit():
+        raise ValueError(f"不合法的 config_id: {config_id}")
+    return config_id
+
+
+def _validate_task_name(task_name):
+    if chr(10) in task_name or chr(13) in task_name:
+        raise ValueError("任务名称不能包含换行符")
+    return task_name
+
+
 def add_tasks_to_cron(task_name, cron_time, config_ids, task_mode, is_enabled=True):
+    task_name = _validate_task_name(task_name)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     task_ids = []
     cron_jobs = get_cron_jobs()
 
     for config_id in config_ids:
+        config_id = _validate_config_id(config_id)
         task_id = str(uuid.uuid4())
 
         commands = []
@@ -136,6 +155,8 @@ def update_tasks_in_cron(task_ids, cron_time=None, config_ids=None, task_mode=No
             if is_enabled is None:
                 is_enabled = is_job_enabled
 
+            task_name = _validate_task_name(task_name)
+            config_id = _validate_config_id(config_id)
             commands = []
             if task_mode == 'strm_creation':
                 cmd_main = f'cd "{script_dir}" && /usr/local/bin/python3.9 "main.py" {config_id} {current_task_id}'
@@ -178,7 +199,7 @@ def delete_tasks_from_cron(task_ids):
 
 def update_crontab(cron_jobs):
     cron_data = "\n".join(cron_jobs)
-    subprocess.run(f'(echo "{cron_data}") | crontab -', shell=True)
+    subprocess.run(["crontab", "-"], input=cron_data, text=True)
 
     # 同步到备份文件
     backup_cron_jobs(cron_jobs)
